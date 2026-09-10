@@ -74,6 +74,10 @@ zip を Jellyfin のデータディレクトリの `plugins/Jellyfin.Plugin.Appl
 | Max search results | 1 クエリあたりの取得件数（既定 25） |
 | Artwork size | アートワーク URL テンプレートに入れる辺の長さ（既定 1400） |
 | Request timeout | リクエストのタイムアウト秒数（既定 30） |
+| Cache catalog responses | ローカルにキャッシュして再取得を防ぐ（既定 ON、強く推奨） |
+| Cache lifetime | キャッシュの有効日数（既定 30 日） |
+| Remember "not found" for | 未ヒットを記憶する時間（既定 24 時間） |
+| Maximum cached entries | キャッシュ上限件数（既定 20000） |
 | Backend base URL / API key | 将来のバックエンド方式用。現在は未使用 |
 
 設定後、**ライブラリ設定でメタデータ/画像取得元として `Apple Music` を有効にする**
@@ -101,6 +105,7 @@ dotnet test
 - [x] アルバムのメタデータ / 画像プロバイダ
 - [x] アーティストのメタデータ / 画像プロバイダ
 - [x] 曲のメタデータプロバイダ
+- [x] ローカルキャッシュ（永続化 + 同時リクエストの束ね）
 - [ ] 実サーバーでの動作確認
 - [ ] 検索結果のスコアリング（表記ゆれ・全角半角・カナ）
 - [ ] バックエンド方式の実装（`.p8` を持つ自前サーバー経由）

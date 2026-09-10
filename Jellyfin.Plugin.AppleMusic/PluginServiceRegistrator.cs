@@ -1,6 +1,9 @@
 using System;
+using System.IO;
 using System.Net.Http;
 using Jellyfin.Plugin.AppleMusic.Catalog;
+using Jellyfin.Plugin.AppleMusic.Catalog.Caching;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
@@ -24,10 +27,19 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             CreateHttpClient(provider),
             provider.GetRequiredService<ILogger<WebPlayTokenProvider>>()));
 
-        serviceCollection.AddSingleton<ICatalogTransport>(provider => new WebPlayTransport(
-            CreateHttpClient(provider),
-            provider.GetRequiredService<IWebPlayTokenProvider>(),
-            provider.GetRequiredService<ILogger<WebPlayTransport>>()));
+        serviceCollection.AddSingleton<ICatalogCache>(provider => new FileCatalogCache(
+            CachePath(provider.GetRequiredService<IApplicationPaths>()),
+            CurrentCacheOptions,
+            provider.GetRequiredService<ILogger<FileCatalogCache>>()));
+
+        // The cache wraps the real transport, so every lookup goes through it.
+        serviceCollection.AddSingleton<ICatalogTransport>(provider => new CachingCatalogTransport(
+            new WebPlayTransport(
+                CreateHttpClient(provider),
+                provider.GetRequiredService<IWebPlayTokenProvider>(),
+                provider.GetRequiredService<ILogger<WebPlayTransport>>()),
+            provider.GetRequiredService<ICatalogCache>(),
+            provider.GetRequiredService<ILogger<CachingCatalogTransport>>()));
 
         serviceCollection.AddSingleton<IAppleMusicCatalog>(provider => new AppleMusicCatalog(
             provider.GetRequiredService<ICatalogTransport>(),
@@ -42,6 +54,12 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     /// <returns>The current catalog options.</returns>
     private static CatalogOptions CurrentOptions()
         => Plugin.Instance?.Configuration.ToCatalogOptions() ?? new CatalogOptions();
+
+    private static CatalogCacheOptions CurrentCacheOptions()
+        => Plugin.Instance?.Configuration.ToCacheOptions() ?? new CatalogCacheOptions();
+
+    private static string CachePath(IApplicationPaths paths)
+        => Path.Combine(paths.CachePath, "apple-music", "catalog.json");
 
     private static HttpClient CreateHttpClient(IServiceProvider provider)
         => provider.GetRequiredService<IHttpClientFactory>().CreateClient(NamedClient.Default);
