@@ -67,8 +67,15 @@ Jellyfin.Plugin.AppleMusic/ExternalIds/  ProviderKeys, 3 つの IExternalId,
                                          IExternalUrlProvider
 Jellyfin.Plugin.AppleMusic/Providers/    Album/Artist/Song のメタデータ、
                                          Album/Artist の画像
+Jellyfin.Plugin.AppleMusic/Tasks/        キャッシュ掃除の週次タスク
+Jellyfin.Plugin.AppleMusic/Api/          設定画面から叩くキャッシュ操作 API
 PluginServiceRegistrator.cs              カタログ層の DI 登録
 ```
+
+**期限切れエントリは自分では消えない。** 読み出し時に無視されるだけなので、
+`CacheMaintenanceTask`（週次）と設定画面のボタンが `PruneAsync` を呼ぶ。
+`IScheduledTask.Key` は Jellyfin がユーザーのスケジュール設定を紐付ける識別子なので、
+変えると設定が黙って失われる。
 
 **`Catalog/` は `MediaBrowser.*` を参照しない。** サーバー上でステップ実行できない
 事情があるため、ロジックはここに寄せてユニットテストで検証する。`Providers/` は

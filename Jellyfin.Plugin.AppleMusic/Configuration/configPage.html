@@ -145,6 +145,21 @@
                         </button>
                     </div>
                 </form>
+
+                <div style="margin-top:2em;">
+                    <h2>Cache maintenance</h2>
+                    <div class="fieldDescription" style="margin-bottom:1em;">
+                        Expired entries are ignored on read but are only deleted by the
+                        <em>Prune the Apple Music cache</em> scheduled task, which runs weekly.
+                        Both actions can also be triggered here.
+                    </div>
+                    <button is="emby-button" type="button" id="PruneCache" class="raised block emby-button">
+                        <span>Prune expired entries</span>
+                    </button>
+                    <button is="emby-button" type="button" id="ClearCache" class="raised block emby-button">
+                        <span>Clear the whole cache</span>
+                    </button>
+                </div>
             </div>
         </div>
         <script type="text/javascript">
@@ -171,6 +186,37 @@
                         document.querySelector('#MaxPersistedEntryKilobytes').value =
                             config.MaxPersistedEntryKilobytes;
                         Dashboard.hideLoadingMsg();
+                    });
+                });
+
+            document.querySelector('#PruneCache')
+                .addEventListener('click', function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('AppleMusic/Cache/Prune'),
+                        dataType: 'json'
+                    }).then(function (removed) {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Removed ' + removed + ' expired entries.');
+                    }, function () {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Could not prune the cache.');
+                    });
+                });
+
+            document.querySelector('#ClearCache')
+                .addEventListener('click', function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('AppleMusic/Cache/Clear')
+                    }).then(function () {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('The cache has been cleared.');
+                    }, function () {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Could not clear the cache.');
                     });
                 });
 
