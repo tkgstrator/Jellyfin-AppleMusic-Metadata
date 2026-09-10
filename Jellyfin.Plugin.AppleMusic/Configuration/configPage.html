@@ -159,6 +159,48 @@
                 </form>
 
                 <div style="margin-top:2em;">
+                    <h2>Library organization</h2>
+                    <div class="fieldDescription" style="margin-bottom:1em;">
+                        Moves every album that has an Apple Music id into
+                        <code>Artist-[amid-id]/Album-[amid-id]/01 Title.ext</code> under its library folder.
+                        Directories tagged this way are looked up by id on later scans, so the rate-limited
+                        search is never needed again. Jellyfin sees the moved files as new items: play counts
+                        and favourites on them are lost. Preview first; the scheduled task
+                        <em>Organize the library by Apple Music ids</em> only logs while <em>Dry run</em> is on.
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="OrganizeRenameTrackFiles" name="OrganizeRenameTrackFiles" type="checkbox" is="emby-checkbox" />
+                            <span>Rename track files</span>
+                        </label>
+                        <div class="fieldDescription">
+                            Also rename tracks to <code>01 Title.ext</code> (<code>2-01 Title.ext</code> on multi-disc
+                            albums). Directories are always renamed.
+                        </div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="OrganizeDryRun" name="OrganizeDryRun" type="checkbox" is="emby-checkbox" />
+                            <span>Dry run</span>
+                        </label>
+                        <div class="fieldDescription">
+                            The scheduled task only writes the planned moves to the log. Turn off to let it move
+                            files. The buttons below are not affected: Preview never moves, Apply always does.
+                        </div>
+                    </div>
+                    <button is="emby-button" type="button" id="OrganizePreview" class="raised block emby-button">
+                        <span>Preview moves</span>
+                    </button>
+                    <button is="emby-button" type="button" id="OrganizeApply" class="raised block emby-button">
+                        <span>Apply moves now</span>
+                    </button>
+                    <div id="OrganizeResult" style="margin-top:1em; display:none;">
+                        <div id="OrganizeSummary" class="fieldDescription"></div>
+                        <pre id="OrganizeDetails" style="white-space:pre-wrap; font-size:0.85em; max-height:24em; overflow:auto;"></pre>
+                    </div>
+                </div>
+
+                <div style="margin-top:2em;">
                     <h2>Cache maintenance</h2>
                     <div class="fieldDescription" style="margin-bottom:1em;">
                         Expired entries are ignored on read but are only deleted by the
@@ -199,6 +241,8 @@
                         document.querySelector('#MaxCacheMemoryMegabytes').value = config.MaxCacheMemoryMegabytes;
                         document.querySelector('#MaxPersistedEntryKilobytes').value =
                             config.MaxPersistedEntryKilobytes;
+                        document.querySelector('#OrganizeRenameTrackFiles').checked = config.OrganizeRenameTrackFiles;
+                        document.querySelector('#OrganizeDryRun').checked = config.OrganizeDryRun;
                         Dashboard.hideLoadingMsg();
                     });
                 });
@@ -234,6 +278,56 @@
                     });
                 });
 
+            function showOrganizeReport(report) {
+                var lines = [];
+                report.Moves.forEach(function (move) {
+                    lines.push(((move.Kind === 0 || move.Kind === 'Directory') ? '[dir]  ' : '[file] ') + move.From + '\n    -> ' + move.To);
+                });
+                report.Skipped.forEach(function (reason) { lines.push('[skip] ' + reason); });
+                (report.Failed || []).forEach(function (reason) { lines.push('[FAIL] ' + reason); });
+                document.querySelector('#OrganizeSummary').textContent =
+                    (report.DryRun ? 'Preview: ' : 'Applied ' + report.Applied + ' of ') +
+                    report.Moves.length + ' move(s) across ' + report.Albums + ' album(s), ' +
+                    report.Skipped.length + ' skipped' +
+                    (report.Failed && report.Failed.length ? ', ' + report.Failed.length + ' failed' : '') + '.';
+                document.querySelector('#OrganizeDetails').textContent =
+                    lines.length ? lines.join('\n') : 'Nothing to do.';
+                document.querySelector('#OrganizeResult').style.display = 'block';
+            }
+
+            function runOrganize(action) {
+                Dashboard.showLoadingMsg();
+                ApiClient.ajax({
+                    type: 'POST',
+                    url: ApiClient.getUrl('AppleMusic/Organize/' + action),
+                    dataType: 'json'
+                }).then(function (report) {
+                    Dashboard.hideLoadingMsg();
+                    showOrganizeReport(report);
+                }, function (response) {
+                    Dashboard.hideLoadingMsg();
+                    Dashboard.alert(response && response.status === 409
+                        ? 'The organizer is already running.'
+                        : 'The organizer failed; see the server log.');
+                });
+            }
+
+            document.querySelector('#OrganizePreview')
+                .addEventListener('click', function () { runOrganize('Plan'); });
+
+            document.querySelector('#OrganizeApply')
+                .addEventListener('click', function () {
+                    Dashboard.confirm(
+                        'Move the files now? Jellyfin will re-scan the library afterwards and treat the moved ' +
+                        'tracks as new items, so play counts and favourites on them are lost.',
+                        'Organize the library',
+                        function (confirmed) {
+                            if (confirmed) {
+                                runOrganize('Apply');
+                            }
+                        });
+                });
+
             document.querySelector('#AppleMusicConfigForm')
                 .addEventListener('submit', function (e) {
                     Dashboard.showLoadingMsg();
@@ -257,6 +351,8 @@
                             document.querySelector('#MaxCacheMemoryMegabytes').value, 10);
                         config.MaxPersistedEntryKilobytes = parseInt(
                             document.querySelector('#MaxPersistedEntryKilobytes').value, 10);
+                        config.OrganizeRenameTrackFiles = document.querySelector('#OrganizeRenameTrackFiles').checked;
+                        config.OrganizeDryRun = document.querySelector('#OrganizeDryRun').checked;
                         ApiClient.updatePluginConfiguration(AppleMusicConfig.pluginUniqueId, config)
                             .then(function (result) {
                                 Dashboard.processPluginConfigurationUpdateResult(result);

@@ -65,6 +65,10 @@ Debug ビルドしたうえで `$JELLYFIN_CONFIG_DIR/plugins/Jellyfin.Plugin.App
 1. <http://localhost:8096> にアクセス（初回はセットアップウィザード）
 2. ダッシュボード → プラグイン に `Apple Music (JP, US)` が出ること
 3. ダッシュボード → プラグイン → Apple Music (JP, US) で設定できること
+4. 音楽ライブラリを追加してスキャンし、アルバム/曲に Apple Music の ID が付くこと
+5. 設定画面の **Preview moves** で移動予定が出て、**Apply moves now** で
+   `Artist-[amid-id]/Album-[amid-id]/01 Title.ext` に並ぶこと。再スキャン後のログに
+   `Searching` が出ず `Looking up ... by` だけになること
 
 ログ:
 

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Jellyfin.Plugin.AppleMusic.Catalog;
 using Jellyfin.Plugin.AppleMusic.Catalog.Caching;
 using Jellyfin.Plugin.AppleMusic.Catalog.Throttling;
+using Jellyfin.Plugin.AppleMusic.Organizer;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.AppleMusic.Configuration;
@@ -56,6 +57,8 @@ public class PluginConfiguration : BasePluginConfiguration
         CacheNotFoundLifetimeHours = 24;
         MaxCacheMemoryMegabytes = 64;
         MaxPersistedEntryKilobytes = 8;
+        OrganizeRenameTrackFiles = true;
+        OrganizeDryRun = true;
     }
 
     /// <summary>
@@ -134,6 +137,18 @@ public class PluginConfiguration : BasePluginConfiguration
     public int MaxPersistedEntryKilobytes { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether the organizer renames track
+    /// files to <c>01 Title.ext</c> as well as directories.
+    /// </summary>
+    public bool OrganizeRenameTrackFiles { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the organize task only logs
+    /// what it would move. The settings page can still apply explicitly.
+    /// </summary>
+    public bool OrganizeDryRun { get; set; }
+
+    /// <summary>
     /// Gets the storefronts to query, in order.
     /// </summary>
     /// <returns>Ordered storefront identifiers.</returns>
@@ -162,6 +177,19 @@ public class PluginConfiguration : BasePluginConfiguration
             LanguageOverride = LanguageOverride,
             MaxSearchResults = MaxSearchResults,
             ArtworkSize = ArtworkSize,
+        };
+    }
+
+    /// <summary>
+    /// Projects the organizer settings onto the options used by the organizer.
+    /// </summary>
+    /// <returns>Organizer options.</returns>
+    public OrganizeOptions ToOrganizeOptions()
+    {
+        return new OrganizeOptions
+        {
+            RenameTrackFiles = OrganizeRenameTrackFiles,
+            DryRun = OrganizeDryRun,
         };
     }
 

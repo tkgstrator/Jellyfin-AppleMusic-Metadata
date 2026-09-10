@@ -21,4 +21,10 @@ public class Resource<TAttributes>
     /// Gets or sets the attribute payload.
     /// </summary>
     public TAttributes? Attributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the related resources. Present on id lookups, absent on
+    /// search results.
+    /// </summary>
+    public Relationships? Relationships { get; set; }
 }

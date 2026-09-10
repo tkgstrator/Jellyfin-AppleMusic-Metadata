@@ -4,9 +4,11 @@ using System.Net.Http;
 using Jellyfin.Plugin.AppleMusic.Catalog;
 using Jellyfin.Plugin.AppleMusic.Catalog.Caching;
 using Jellyfin.Plugin.AppleMusic.Catalog.Throttling;
+using Jellyfin.Plugin.AppleMusic.Organizer;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -51,6 +53,12 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             provider.GetRequiredService<ICatalogTransport>(),
             CurrentOptions,
             provider.GetRequiredService<ILogger<AppleMusicCatalog>>()));
+
+        serviceCollection.AddSingleton(provider => new LibraryOrganizer(
+            provider.GetRequiredService<ILibraryManager>(),
+            provider.GetRequiredService<IAppleMusicCatalog>(),
+            CurrentOrganizeOptions,
+            provider.GetRequiredService<ILogger<LibraryOrganizer>>()));
     }
 
     /// <summary>
@@ -60,6 +68,9 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     /// <returns>The current catalog options.</returns>
     private static CatalogOptions CurrentOptions()
         => Plugin.Instance?.Configuration.ToCatalogOptions() ?? new CatalogOptions();
+
+    private static OrganizeOptions CurrentOrganizeOptions()
+        => Plugin.Instance?.Configuration.ToOrganizeOptions() ?? new OrganizeOptions();
 
     private static ThrottleOptions CurrentThrottleOptions()
         => Plugin.Instance?.Configuration.ToThrottleOptions() ?? new ThrottleOptions();
