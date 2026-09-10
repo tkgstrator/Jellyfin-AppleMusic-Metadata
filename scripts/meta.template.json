@@ -1,9 +1,9 @@
 {
   "category": "Metadata",
   "guid": "809f18d0-4e70-412c-ae98-1b8b5a5d730d",
-  "name": "Apple Music (JP/US)",
+  "name": "Apple Music (JP, US)",
   "overview": "Apple Music metadata and artwork for tracks, albums and artists.",
-  "description": "Fetches track, album and artist metadata and artwork from the Apple Music catalog through a self-hosted backend. Supports the Japanese and US storefronts with configurable fallback order.",
+  "description": "Fetches track, album and artist metadata and artwork from the Apple Music catalog. Supports the Japanese and US storefronts with configurable fallback order.",
   "owner": "tkgstrator",
   "targetAbi": "__TARGET_ABI__",
   "version": "__VERSION__",
