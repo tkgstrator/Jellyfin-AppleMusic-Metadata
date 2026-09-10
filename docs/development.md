@@ -63,8 +63,8 @@ Debug ビルドしたうえで `$JELLYFIN_CONFIG_DIR/plugins/Jellyfin.Plugin.App
 反映後の確認:
 
 1. <http://localhost:8096> にアクセス（初回はセットアップウィザード）
-2. ダッシュボード → プラグイン に `Apple Music (JP/US)` が出ること
-3. ダッシュボード → プラグイン → Apple Music (JP/US) で設定できること
+2. ダッシュボード → プラグイン に `Apple Music (JP, US)` が出ること
+3. ダッシュボード → プラグイン → Apple Music (JP, US) で設定できること
 
 ログ:
 
