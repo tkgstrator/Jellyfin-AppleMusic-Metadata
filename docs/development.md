@@ -63,8 +63,8 @@ Debug ビルドしたうえで `$JELLYFIN_CONFIG_DIR/plugins/Jellyfin.Plugin.App
 反映後の確認:
 
 1. <http://localhost:8096> にアクセス（初回はセットアップウィザード）
-2. ダッシュボード → プラグイン に `Apple Music (JP/US)` が出ること
-3. ダッシュボード → プラグイン → Apple Music (JP/US) で設定できること
+2. ダッシュボード → プラグイン に `Apple Music (JP, US)` が出ること
+3. ダッシュボード → プラグイン → Apple Music (JP, US) で設定できること
 
 ログ:
 
@@ -143,6 +143,16 @@ lint・ビルド・テストが通らなければ成果物は作られない**�
 
 `master` で `v0.2.0` のようなタグを打って push する。バージョンは 4 桁
 （`0.2.0.0`）に正規化される。リリースノートは GitHub が自動生成する。
+
+**タグは必ず develop → master のマージコミットに打つ。** `gh pr merge` の直後に
+`git pull` すると GitHub 側の反映が間に合わず 1 つ前のコミット（= develop の先頭）を
+掴むことがある。`git rev-parse origin/master` が PR の mergeCommit と一致することを
+確認してから `git tag` すること。develop と同じ SHA にタグを打つと、ツリーは同一で
+配布物は正しいが、**GitHub Pages が同じ SHA への 2 回目以降のデプロイを反映しない**
+ため、安定版 manifest が空のまま残る（v0.1.0 で実際に起きた）。
+
+手動で走らせるときは `workflow_dispatch` に 4 桁バージョン（`0.2.0.0`）を渡す。
+タグは `v0.2.0` として解決され、既存のリリースがあればそれを更新する。
 
 ### プラグインリポジトリ（manifest.json）
 
