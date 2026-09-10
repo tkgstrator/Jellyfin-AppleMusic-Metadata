@@ -90,7 +90,7 @@ dotnet format --verify-no-changes     # CI と同じ書式チェック
 ## ブランチとリリース
 
 ```
-feature/*  ──PR──▶  develop  ──マージ──▶  main  ──v* タグ──▶  正式リリース
+feature/*  ──PR──▶  develop  ──マージ──▶  master  ──v* タグ──▶  正式リリース
               │                  │
               │                  └─ push ごとに dev プレリリースを更新
               └─ Integration（commitlint / actionlint / lint / build / test）
