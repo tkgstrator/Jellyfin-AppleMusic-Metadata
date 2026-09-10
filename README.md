@@ -77,7 +77,8 @@ zip を Jellyfin のデータディレクトリの `plugins/Jellyfin.Plugin.Appl
 | Cache catalog responses | ローカルにキャッシュして再取得を防ぐ（既定 ON、強く推奨） |
 | Cache lifetime | キャッシュの有効日数（既定 30 日） |
 | Remember "not found" for | 未ヒットを記憶する時間（既定 24 時間） |
-| Maximum cached entries | キャッシュ上限件数（既定 20000） |
+| Memory budget | キャッシュのメモリ上限（既定 64 MB、LRU で退避） |
+| Largest entry written to disk | これを超える応答はメモリのみ（既定 8 KB） |
 | Backend base URL / API key | 将来のバックエンド方式用。現在は未使用 |
 
 設定後、**ライブラリ設定でメタデータ/画像取得元として `Apple Music` を有効にする**

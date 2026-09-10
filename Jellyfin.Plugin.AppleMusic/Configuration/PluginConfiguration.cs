@@ -52,7 +52,8 @@ public class PluginConfiguration : BasePluginConfiguration
         EnableCache = true;
         CacheLifetimeDays = 30;
         CacheNotFoundLifetimeHours = 24;
-        MaxCacheEntries = 20000;
+        MaxCacheMemoryMegabytes = 64;
+        MaxPersistedEntryKilobytes = 8;
     }
 
     /// <summary>
@@ -112,9 +113,15 @@ public class PluginConfiguration : BasePluginConfiguration
     public int CacheNotFoundLifetimeHours { get; set; }
 
     /// <summary>
-    /// Gets or sets the maximum number of cached entries.
+    /// Gets or sets the memory budget for cached responses, in megabytes.
     /// </summary>
-    public int MaxCacheEntries { get; set; }
+    public int MaxCacheMemoryMegabytes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the largest response written to disk, in kilobytes.
+    /// Larger ones are kept in memory only.
+    /// </summary>
+    public int MaxPersistedEntryKilobytes { get; set; }
 
     /// <summary>
     /// Gets the storefronts to query, in order.
@@ -159,7 +166,8 @@ public class PluginConfiguration : BasePluginConfiguration
             Enabled = EnableCache,
             Lifetime = TimeSpan.FromDays(Math.Max(1, CacheLifetimeDays)),
             NegativeLifetime = TimeSpan.FromHours(Math.Max(1, CacheNotFoundLifetimeHours)),
-            MaxEntries = Math.Max(0, MaxCacheEntries),
+            MaxMemoryBytes = Math.Max(1, MaxCacheMemoryMegabytes) * 1024L * 1024L,
+            MaxPersistedEntryBytes = Math.Max(0, MaxPersistedEntryKilobytes) * 1024,
         };
     }
 }

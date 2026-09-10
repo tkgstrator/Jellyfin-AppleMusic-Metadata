@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.AppleMusic.Catalog;
@@ -12,140 +13,218 @@ namespace Jellyfin.Plugin.AppleMusic.Tests;
 
 public sealed class CatalogCacheTests : IDisposable
 {
-    private readonly string _directory =
+    // Measured against the live API: a 25-result search comes back at ~31 KB,
+    // an id lookup at ~1.5 KB.
+    private const int SearchResponseBytes = 31 * 1024;
+    private const int IdResponseBytes = 1536;
+
+    private readonly string _root =
         Path.Combine(Path.GetTempPath(), "apple-music-tests", Guid.NewGuid().ToString("N"));
 
     public void Dispose()
     {
-        if (Directory.Exists(_directory))
+        if (Directory.Exists(_root))
         {
-            Directory.Delete(_directory, true);
+            Directory.Delete(_root, true);
         }
     }
 
     [Fact]
-    public void Set_ThenTryGet_ReturnsTheStoredBody()
+    public async Task SetThenGet_ReturnsTheStoredBody()
     {
-        using var cache = NewCache();
+        var cache = NewCache();
 
-        cache.Set("/v1/catalog/jp/songs/1", "{\"data\":[]}");
+        await cache.SetAsync("/v1/catalog/jp/songs/1", "{\"data\":[]}", TestContext.Current.CancellationToken);
+        var hit = await cache.GetAsync("/v1/catalog/jp/songs/1", TestContext.Current.CancellationToken);
 
-        Assert.True(cache.TryGet("/v1/catalog/jp/songs/1", out var body));
-        Assert.Equal("{\"data\":[]}", body);
+        Assert.NotNull(hit);
+        Assert.Equal("{\"data\":[]}", hit.Body);
     }
 
     [Fact]
-    public void TryGet_MissesOnAnUnknownKey()
+    public async Task Get_MissesOnAnUnknownKey()
     {
-        using var cache = NewCache();
+        var cache = NewCache();
 
-        Assert.False(cache.TryGet("/nothing", out _));
+        Assert.Null(await cache.GetAsync("/nothing", TestContext.Current.CancellationToken));
     }
 
     [Fact]
-    public void Set_RemembersAbsenceSeparately()
+    public async Task Set_RemembersAbsenceAsAMeaningfulAnswer()
     {
-        using var cache = NewCache();
+        var cache = NewCache();
 
-        cache.Set("/v1/catalog/jp/songs/404", null);
+        await cache.SetAsync("/v1/catalog/jp/songs/404", null, TestContext.Current.CancellationToken);
+        var hit = await cache.GetAsync("/v1/catalog/jp/songs/404", TestContext.Current.CancellationToken);
 
-        // A hit whose value is null: known to be absent, so no refetch.
-        Assert.True(cache.TryGet("/v1/catalog/jp/songs/404", out var body));
-        Assert.Null(body);
+        Assert.NotNull(hit);   // a hit...
+        Assert.Null(hit.Body); // ...whose answer is "not there"
     }
 
     [Fact]
-    public async Task TryGet_TreatsExpiredEntriesAsMisses()
+    public async Task Get_TreatsExpiredEntriesAsMisses()
     {
-        using var cache = NewCache(new CatalogCacheOptions { Lifetime = TimeSpan.FromMilliseconds(1) });
+        var cache = NewCache(new CatalogCacheOptions { Lifetime = TimeSpan.FromMilliseconds(1) });
 
-        cache.Set("/expiring", "value");
+        await cache.SetAsync("/expiring", "value", TestContext.Current.CancellationToken);
         await Task.Delay(20, TestContext.Current.CancellationToken);
 
-        Assert.False(cache.TryGet("/expiring", out _));
+        Assert.Null(await cache.GetAsync("/expiring", TestContext.Current.CancellationToken));
     }
 
     [Fact]
-    public void TryGet_ReturnsNothingWhenCachingIsDisabled()
+    public async Task Get_ReturnsNothingWhenCachingIsDisabled()
     {
         var options = new CatalogCacheOptions();
-        using var cache = NewCache(options);
-        cache.Set("/key", "value");
+        var cache = NewCache(options);
+        await cache.SetAsync("/key", "value", TestContext.Current.CancellationToken);
 
         options.Enabled = false;
 
-        Assert.False(cache.TryGet("/key", out _));
+        Assert.Null(await cache.GetAsync("/key", TestContext.Current.CancellationToken));
     }
 
     [Fact]
-    public void Set_TrimsDownToTheConfiguredLimit()
+    public async Task Memory_StaysWithinItsBudgetAcrossALargeLibrary()
     {
-        using var cache = NewCache(new CatalogCacheOptions { MaxEntries = 5 });
-
-        for (var i = 0; i < 20; i++)
+        // 20,000 search responses at ~31 KB would be ~620 MB if everything were
+        // retained. The budget must hold regardless.
+        const long Budget = 8L * 1024 * 1024;
+        var cache = NewCache(new CatalogCacheOptions
         {
-            cache.Set($"/key/{i}", "value");
+            MaxMemoryBytes = Budget,
+            MaxPersistedEntryBytes = 0, // keep this test off the disk
+        });
+
+        var body = Body(SearchResponseBytes);
+        for (var i = 0; i < 20_000; i++)
+        {
+            await cache.SetAsync($"/v1/catalog/jp/search?term=track{i}", body, TestContext.Current.CancellationToken);
         }
 
-        Assert.True(cache.Count <= 5);
+        Assert.True(
+            cache.MemoryBytes <= Budget,
+            $"memory budget exceeded: {cache.MemoryBytes} > {Budget}");
     }
 
     [Fact]
-    public async Task Entries_SurviveARestart()
+    public async Task Memory_EvictsTheLeastRecentlyUsedEntry()
     {
-        var path = Path.Combine(_directory, "catalog.json");
-
-        using (var first = NewCache(path: path))
+        var cache = NewCache(new CatalogCacheOptions
         {
-            first.Set("/v1/catalog/jp/albums/1440791809", "{\"cached\":true}");
-            await first.FlushAsync(CancellationToken.None);
-        }
+            MaxMemoryBytes = IdResponseBytes * 2,
+            MaxPersistedEntryBytes = 0,
+        });
+        var body = Body(IdResponseBytes);
 
-        using var second = NewCache(path: path);
+        await cache.SetAsync("/a", body, TestContext.Current.CancellationToken);
+        await cache.SetAsync("/b", body, TestContext.Current.CancellationToken);
 
-        Assert.True(second.TryGet("/v1/catalog/jp/albums/1440791809", out var body));
-        Assert.Equal("{\"cached\":true}", body);
+        // Touch /a so /b becomes the least recently used.
+        await cache.GetAsync("/a", TestContext.Current.CancellationToken);
+        await cache.SetAsync("/c", body, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(await cache.GetAsync("/a", TestContext.Current.CancellationToken));
+        Assert.NotNull(await cache.GetAsync("/c", TestContext.Current.CancellationToken));
+        Assert.Null(await cache.GetAsync("/b", TestContext.Current.CancellationToken));
     }
 
     [Fact]
-    public async Task ExpiredEntriesAreNotReloaded()
+    public async Task Disk_KeepsSmallEntriesButNotLargeOnes()
     {
-        var path = Path.Combine(_directory, "catalog.json");
+        var options = new CatalogCacheOptions { MaxPersistedEntryBytes = 8 * 1024 };
 
-        using (var first = NewCache(new CatalogCacheOptions { Lifetime = TimeSpan.FromMilliseconds(1) }, path))
-        {
-            first.Set("/stale", "value");
-            await first.FlushAsync(CancellationToken.None);
-        }
+        var first = NewCache(options);
+        await first.SetAsync("/small", Body(IdResponseBytes), TestContext.Current.CancellationToken);
+        await first.SetAsync("/large", Body(SearchResponseBytes), TestContext.Current.CancellationToken);
+
+        // A fresh instance shares only the disk tier, never the memory tier.
+        var second = NewCache(options);
+
+        Assert.NotNull(await second.GetAsync("/small", TestContext.Current.CancellationToken));
+        Assert.Null(await second.GetAsync("/large", TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Disk_DoesNotServeExpiredEntries()
+    {
+        var options = new CatalogCacheOptions { Lifetime = TimeSpan.FromMilliseconds(1) };
+        var first = NewCache(options);
+        await first.SetAsync("/stale", Body(IdResponseBytes), TestContext.Current.CancellationToken);
 
         await Task.Delay(20, TestContext.Current.CancellationToken);
-        using var second = NewCache(path: path);
+        var second = NewCache(options);
 
-        Assert.Equal(0, second.Count);
+        Assert.Null(await second.GetAsync("/stale", TestContext.Current.CancellationToken));
     }
 
     [Fact]
-    public void Load_SurvivesACorruptFile()
+    public async Task Disk_ShardsFilesIntoSubdirectories()
     {
-        var path = Path.Combine(_directory, "catalog.json");
-        Directory.CreateDirectory(_directory);
-        File.WriteAllText(path, "this is not json");
+        var cache = NewCache();
 
-        using var cache = NewCache(path: path);
+        for (var i = 0; i < 200; i++)
+        {
+            await cache.SetAsync($"/key/{i}", Body(IdResponseBytes), TestContext.Current.CancellationToken);
+        }
 
-        Assert.Equal(0, cache.Count);
-        Assert.False(cache.TryGet("/anything", out _));
+        var shards = Directory.GetDirectories(_root);
+        Assert.True(shards.Length > 1, "entries should be spread across shard directories");
+        Assert.Equal(200, Directory.GetFiles(_root, "*.json", SearchOption.AllDirectories).Length);
+    }
+
+    [Fact]
+    public async Task Get_SurvivesACorruptFile()
+    {
+        var cache = NewCache();
+        await cache.SetAsync("/key", Body(IdResponseBytes), TestContext.Current.CancellationToken);
+
+        foreach (var file in Directory.GetFiles(_root, "*.json", SearchOption.AllDirectories))
+        {
+            await File.WriteAllTextAsync(file, "this is not json", TestContext.Current.CancellationToken);
+        }
+
+        var fresh = NewCache();
+
+        Assert.Null(await fresh.GetAsync("/key", TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Prune_RemovesOnlyExpiredFiles()
+    {
+        var live = NewCache();
+        await live.SetAsync("/live", Body(IdResponseBytes), TestContext.Current.CancellationToken);
+
+        var expiring = NewCache(new CatalogCacheOptions { Lifetime = TimeSpan.FromMilliseconds(1) });
+        await expiring.SetAsync("/dead", Body(IdResponseBytes), TestContext.Current.CancellationToken);
+        await Task.Delay(20, TestContext.Current.CancellationToken);
+
+        var removed = await live.PruneAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, removed);
+        Assert.Single(Directory.GetFiles(_root, "*.json", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task Clear_EmptiesBothTiers()
+    {
+        var cache = NewCache();
+        await cache.SetAsync("/key", Body(IdResponseBytes), TestContext.Current.CancellationToken);
+
+        cache.Clear();
+
+        Assert.Equal(0, cache.MemoryCount);
+        Assert.Null(await cache.GetAsync("/key", TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task Transport_ServesTheSecondLookupFromCache()
     {
         var inner = new CountingTransport("{\"data\":[]}");
-        using var cache = NewCache();
-        var transport = new CachingCatalogTransport(inner, cache, NullLogger<CachingCatalogTransport>.Instance);
+        var transport = NewTransport(inner);
 
-        await transport.GetAsync("/v1/catalog/jp/albums/1", CancellationToken.None);
-        await transport.GetAsync("/v1/catalog/jp/albums/1", CancellationToken.None);
+        await transport.GetAsync("/v1/catalog/jp/albums/1", TestContext.Current.CancellationToken);
+        await transport.GetAsync("/v1/catalog/jp/albums/1", TestContext.Current.CancellationToken);
 
         Assert.Equal(1, inner.Calls);
     }
@@ -154,11 +233,10 @@ public sealed class CatalogCacheTests : IDisposable
     public async Task Transport_StillDistinguishesDifferentUrls()
     {
         var inner = new CountingTransport("{\"data\":[]}");
-        using var cache = NewCache();
-        var transport = new CachingCatalogTransport(inner, cache, NullLogger<CachingCatalogTransport>.Instance);
+        var transport = NewTransport(inner);
 
-        await transport.GetAsync("/v1/catalog/jp/albums/1", CancellationToken.None);
-        await transport.GetAsync("/v1/catalog/us/albums/1", CancellationToken.None);
+        await transport.GetAsync("/v1/catalog/jp/albums/1", TestContext.Current.CancellationToken);
+        await transport.GetAsync("/v1/catalog/us/albums/1", TestContext.Current.CancellationToken);
 
         Assert.Equal(2, inner.Calls);
     }
@@ -169,13 +247,12 @@ public sealed class CatalogCacheTests : IDisposable
         // What a library scan does: every track of an album asks for the same
         // album at once, before anything has been cached.
         var inner = new CountingTransport("{\"data\":[]}", delay: TimeSpan.FromMilliseconds(50));
-        using var cache = NewCache();
-        var transport = new CachingCatalogTransport(inner, cache, NullLogger<CachingCatalogTransport>.Instance);
+        var transport = NewTransport(inner);
 
         var lookups = new List<Task<string?>>();
         for (var i = 0; i < 20; i++)
         {
-            lookups.Add(transport.GetAsync("/v1/catalog/jp/albums/1", CancellationToken.None));
+            lookups.Add(transport.GetAsync("/v1/catalog/jp/albums/1", TestContext.Current.CancellationToken));
         }
 
         await Task.WhenAll(lookups);
@@ -188,11 +265,10 @@ public sealed class CatalogCacheTests : IDisposable
     public async Task Transport_CachesAbsenceSoItIsNotRefetched()
     {
         var inner = new CountingTransport(null);
-        using var cache = NewCache();
-        var transport = new CachingCatalogTransport(inner, cache, NullLogger<CachingCatalogTransport>.Instance);
+        var transport = NewTransport(inner);
 
-        Assert.Null(await transport.GetAsync("/missing", CancellationToken.None));
-        Assert.Null(await transport.GetAsync("/missing", CancellationToken.None));
+        Assert.Null(await transport.GetAsync("/missing", TestContext.Current.CancellationToken));
+        Assert.Null(await transport.GetAsync("/missing", TestContext.Current.CancellationToken));
 
         Assert.Equal(1, inner.Calls);
     }
@@ -201,23 +277,24 @@ public sealed class CatalogCacheTests : IDisposable
     public async Task Transport_GoesStraightThroughWhenCachingIsDisabled()
     {
         var inner = new CountingTransport("{\"data\":[]}");
-        using var cache = NewCache(new CatalogCacheOptions { Enabled = false });
-        var transport = new CachingCatalogTransport(inner, cache, NullLogger<CachingCatalogTransport>.Instance);
+        var transport = NewTransport(inner, new CatalogCacheOptions { Enabled = false });
 
-        await transport.GetAsync("/v1/catalog/jp/albums/1", CancellationToken.None);
-        await transport.GetAsync("/v1/catalog/jp/albums/1", CancellationToken.None);
+        await transport.GetAsync("/v1/catalog/jp/albums/1", TestContext.Current.CancellationToken);
+        await transport.GetAsync("/v1/catalog/jp/albums/1", TestContext.Current.CancellationToken);
 
         Assert.Equal(2, inner.Calls);
     }
 
-    private FileCatalogCache NewCache(CatalogCacheOptions? options = null, string? path = null)
+    private static string Body(int bytes) => new('x', bytes);
+
+    private CatalogCache NewCache(CatalogCacheOptions? options = null)
     {
         var resolved = options ?? new CatalogCacheOptions();
-        return new FileCatalogCache(
-            path ?? Path.Combine(_directory, "catalog.json"),
-            () => resolved,
-            NullLogger<FileCatalogCache>.Instance);
+        return new CatalogCache(_root, () => resolved, NullLogger<CatalogCache>.Instance);
     }
+
+    private CachingCatalogTransport NewTransport(ICatalogTransport inner, CatalogCacheOptions? options = null)
+        => new(inner, NewCache(options), NullLogger<CachingCatalogTransport>.Instance);
 
     private sealed class CountingTransport : ICatalogTransport
     {

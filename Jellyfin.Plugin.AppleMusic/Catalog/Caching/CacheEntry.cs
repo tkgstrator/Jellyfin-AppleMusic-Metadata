@@ -3,7 +3,7 @@ using System;
 namespace Jellyfin.Plugin.AppleMusic.Catalog.Caching;
 
 /// <summary>
-/// One cached response.
+/// One cached response, as persisted.
 /// </summary>
 public class CacheEntry
 {

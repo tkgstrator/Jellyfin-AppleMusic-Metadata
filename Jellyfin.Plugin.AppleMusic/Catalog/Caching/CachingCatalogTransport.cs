@@ -42,10 +42,11 @@ public class CachingCatalogTransport : ICatalogTransport
     /// <inheritdoc />
     public async Task<string?> GetAsync(string relativeUrl, CancellationToken cancellationToken)
     {
-        if (_cache.TryGet(relativeUrl, out var cached))
+        var cached = await _cache.GetAsync(relativeUrl, cancellationToken);
+        if (cached is not null)
         {
             _logger.LogDebug("Cache hit for {Url}", relativeUrl);
-            return cached;
+            return cached.Body;
         }
 
         // Publish the placeholder BEFORE fetching. Registering the task the
@@ -63,7 +64,7 @@ public class CachingCatalogTransport : ICatalogTransport
         try
         {
             var body = await _inner.GetAsync(relativeUrl, cancellationToken);
-            _cache.Set(relativeUrl, body);
+            await _cache.SetAsync(relativeUrl, body, cancellationToken);
             completion.SetResult(body);
             return body;
         }
