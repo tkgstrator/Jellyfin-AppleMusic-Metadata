@@ -1,21 +1,32 @@
 name: Integration
 
-# Feature branches and every pull request.
-# develop / main pushes are covered by release-dev.yaml and release.yaml.
+# Feature branches and pull requests.
+# Also called by deployment.yaml so that every release goes through the exact
+# same checks — keep new checks in this file only.
 on:
   push:
     branches-ignore:
       - main
       - develop
   pull_request:
+  workflow_call:
+    inputs:
+      lint-commits:
+        description: Run commitlint. Disabled when called from deployment.yaml, since merge commits are not Conventional Commits.
+        type: boolean
+        default: true
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: integration-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
 
 jobs:
   commitlint:
     name: Commit Lint
+    if: ${{ inputs.lint-commits != false }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -50,6 +61,77 @@ jobs:
         with:
           args: -color
 
-  verify:
-    name: Verify
-    uses: ./.github/workflows/verify.yaml
+  lint:
+    name: Lint (dotnet format)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+      - name: Restore
+        run: dotnet restore
+      - name: Verify formatting
+        run: dotnet format --no-restore --verify-no-changes --verbosity diagnostic
+
+  build:
+    name: Build (${{ matrix.tfm }} / Jellyfin ${{ matrix.jellyfin }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tfm: net9.0
+            jellyfin: '10.11'
+          - tfm: net10.0
+            jellyfin: '12.0'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+      - name: Restore
+        run: dotnet restore
+      # Analyzers run here: the project sets TreatWarningsAsErrors, so any
+      # StyleCop / .NET analyzer violation fails this job.
+      - name: Build
+        run: >-
+          dotnet build --no-restore --configuration Release
+          --framework ${{ matrix.tfm }}
+          Jellyfin.Plugin.AppleMusic/Jellyfin.Plugin.AppleMusic.csproj
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # Both runtimes are required: tests target net9.0 and net10.0, and
+      # Jellyfin.Controller pulls in ASP.NET Core.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+      - name: Restore
+        run: dotnet restore
+      - name: Test
+        run: dotnet test --no-restore --configuration Release

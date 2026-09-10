@@ -121,16 +121,17 @@ feature/*  ──PR──▶  develop  ──マージ──▶  main  ──v* 
               └─ Integration（commitlint / actionlint / lint / build / test）
 ```
 
+ワークフローは 2 つ。
+
 | ワークフロー | 起動条件 | 内容 |
 | --- | --- | --- |
-| `integration.yaml` | feature ブランチへの push、全 PR | commitlint、actionlint、`verify` |
-| `release-dev.yaml` | `develop` への push | `verify` → パッケージ → `dev` タグのプレリリースを置き換え |
-| `release.yaml` | `v*` タグの push | `verify` → パッケージ → 正式リリース |
-| `verify.yaml` | 上記から `workflow_call` で呼ばれる | `dotnet format` / build（net9.0・net10.0）/ test |
+| `integration.yaml` | feature ブランチへの push、全 PR、`deployment.yaml` からの呼び出し | commitlint、actionlint、`dotnet format`、build（net9.0・net10.0）、test |
+| `deployment.yaml` | `develop` への push / `v*` タグの push | `integration.yaml` を呼ぶ → パッケージ → リリース公開 |
 
-検証はすべて `verify.yaml` に集約してある。**リリースに至る経路は例外なくこれを通る**
-ので、develop へのマージもタグリリースも、lint・ビルド・テストが通らなければ成果物は
-作られない。
+検証は `integration.yaml` に集約してある。`deployment.yaml` はそれを
+`workflow_call` で呼んでから公開するので、**develop へのマージもタグリリースも、
+lint・ビルド・テストが通らなければ成果物は作られない**。チェックを追加するときは
+`integration.yaml` の 1 箇所だけを編集すればよい。
 
 ### 開発版の入手
 

@@ -99,11 +99,15 @@ feature/*  ──PR──▶  develop  ──マージ──▶  main  ──v* 
 | ブランチ・操作 | 走るワークフロー | 成果物 |
 | --- | --- | --- |
 | feature ブランチへの push、PR | `integration.yaml` | なし（検証のみ） |
-| `develop` への push（マージ） | `release-dev.yaml` | `dev` タグのプレリリースを毎回置き換え |
-| `v*` タグの push | `release.yaml` | 正式リリース |
+| `develop` への push（マージ） | `deployment.yaml` | `dev` タグのプレリリースを毎回置き換え |
+| `v*` タグの push | `deployment.yaml` | 正式リリース |
 
-- 検証の中身は `verify.yaml`（`workflow_call` の再利用ワークフロー）に集約してある。
-  **リリースへ至る経路はすべてこれを通る**ので、チェックを足すときはここに足す。
+- ワークフローは **`integration.yaml` と `deployment.yaml` の 2 つだけ**。
+- `deployment.yaml` は `integration.yaml` を `workflow_call` で呼んでから公開する。
+  **リリースへ至る経路はすべて integration を通る**ので、チェックを足すときは
+  `integration.yaml` にだけ足せばよい。
+- deployment から呼ぶときは `lint-commits: false` で commitlint を抑止する
+  （マージコミットは Conventional Commits ではないため）。
 - 開発版のバージョンは `Directory.Build.props` の上 3 桁 + `github.run_number`
   （例 `0.1.0.42`）。正式版はタグ `v0.2.0` を 4 桁に正規化して `0.2.0.0`。
 - `dev` タグのリリースは毎回削除して作り直す（古い zip を残さないため）。

@@ -1,0 +1,115 @@
+name: Deployment
+
+# develop  -> rolling `dev` pre-release
+# v* tag   -> stable release
+on:
+  push:
+    branches:
+      - develop
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Four-part version to release as stable (e.g. 0.2.0.0)'
+        required: true
+
+concurrency:
+  group: deployment-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Same checks as every pull request; commitlint is skipped because merge
+  # commits are not Conventional Commits.
+  integration:
+    name: Integration
+    uses: ./.github/workflows/integration.yaml
+    with:
+      lint-commits: false
+
+  deploy:
+    name: Publish
+    needs: integration
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+
+      - name: Resolve version and channel
+        id: meta
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then
+            version="$INPUT_VERSION"
+            channel="stable"
+          elif [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            # v1.2.3 -> 1.2.3.0 (Jellyfin requires a four-part version)
+            version="${GITHUB_REF_NAME#v}"
+            while [ "$(echo "$version" | tr -cd '.' | wc -c)" -lt 3 ]; do
+              version="$version.0"
+            done
+            channel="stable"
+          else
+            # 0.1.0.0 in Directory.Build.props -> 0.1.0.<run number>
+            base="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props | head -1)"
+            version="$(echo "$base" | cut -d. -f1-3).${{ github.run_number }}"
+            channel="dev"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "Publishing $channel build $version"
+
+      - name: Build packages
+        env:
+          CHANGELOG: ${{ steps.meta.outputs.channel == 'stable' && format('Release {0}', steps.meta.outputs.version) || format('Development build {0} from {1}', steps.meta.outputs.version, github.sha) }}
+        run: ./scripts/package.sh "${{ steps.meta.outputs.version }}"
+
+      # Replace the previous dev release so stale archives do not pile up.
+      - name: Drop previous development release
+        if: steps.meta.outputs.channel == 'dev'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete dev --yes --cleanup-tag || true
+
+      - name: Publish development pre-release
+        if: steps.meta.outputs.channel == 'dev'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev
+          target_commitish: ${{ github.sha }}
+          name: Development build ${{ steps.meta.outputs.version }}
+          body: |
+            Automated build from `develop` (${{ github.sha }}).
+
+            **This is a development build.** Pick the archive matching your server:
+
+            | Jellyfin | Archive |
+            | --- | --- |
+            | 12.0.x | `apple-music_${{ steps.meta.outputs.version }}_jellyfin-12.0.zip` |
+            | 10.11.x | `apple-music_${{ steps.meta.outputs.version }}_jellyfin-10.11.zip` |
+          prerelease: true
+          make_latest: false
+          files: |
+            dist/*.zip
+            dist/*.md5
+
+      - name: Publish stable release
+        if: steps.meta.outputs.channel == 'stable'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.meta.outputs.version) }}
+          name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.meta.outputs.version) }}
+          generate_release_notes: true
+          files: |
+            dist/*.zip
+            dist/*.md5
