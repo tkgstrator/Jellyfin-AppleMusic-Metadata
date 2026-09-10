@@ -21,6 +21,9 @@ project.fragment.lock.json
 # Build output collected by scripts/package.sh
 dist/
 
+# GitHub Pages payload built by scripts/manifest.py
+site/
+
 # Test output
 TestResults/
 [Tt]est[Rr]esults/

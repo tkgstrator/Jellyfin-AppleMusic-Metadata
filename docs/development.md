@@ -126,7 +126,7 @@ feature/*  ──PR──▶  develop  ──マージ──▶  master  ──v
 | ワークフロー | 起動条件 | 内容 |
 | --- | --- | --- |
 | `integration.yaml` | feature ブランチへの push、全 PR、`deployment.yaml` からの呼び出し | commitlint、actionlint、`dotnet format`、build（net9.0・net10.0）、test |
-| `deployment.yaml` | `develop` への push / `v*` タグの push | `integration.yaml` を呼ぶ → パッケージ → リリース公開 |
+| `deployment.yaml` | `develop` への push / `v*` タグの push | `integration.yaml` を呼ぶ → パッケージ → リリース公開 → manifest を GitHub Pages に公開 |
 
 検証は `integration.yaml` に集約してある。`deployment.yaml` はそれを
 `workflow_call` で呼んでから公開するので、**develop へのマージもタグリリースも、
@@ -144,8 +144,34 @@ lint・ビルド・テストが通らなければ成果物は作られない**�
 `master` で `v0.2.0` のようなタグを打って push する。バージョンは 4 桁
 （`0.2.0.0`）に正規化される。リリースノートは GitHub が自動生成する。
 
-Jellyfin のプラグインリポジトリ（`manifest.json`）を公開する場合は、この zip の
-URL と MD5 を manifest に載せる。
+### プラグインリポジトリ（manifest.json）
+
+リリース公開のあと、`deployment.yaml` の `manifest` ジョブが
+`scripts/manifest.py` で GitHub のリリース一覧から manifest を組み立て、GitHub Pages
+（<https://tkgstrator.github.io/Jellyfin-AppleMusic-Metadata/>）に配置する。
+
+```
+manifest.json                     安定版, Jellyfin 12.0
+manifest-jellyfin-10.11.json      安定版, Jellyfin 10.11
+dev/manifest.json                 安定版 + プレリリース, Jellyfin 12.0
+dev/manifest-jellyfin-10.11.json  安定版 + プレリリース, Jellyfin 10.11
+```
+
+- manifest は**この実行の成果物ではなくリリース一覧から**作る。そのため develop への
+  push でもタグ push でも全ファイルを作り直すだけでよく、手で編集する箇所はない。
+- ABI ごとに分けるのは、Jellyfin が `targetAbi <= サーバー` の版をすべて候補にするため。
+  1 つにまとめると 12.0 サーバーに net9.0 のアセンブリが入りうる。
+- 安定版と開発版を分けるのは、開発版 `0.1.0.42` が安定版 `0.1.0.0` より新しいと
+  解釈され、自動更新で開発版を掴んでしまうため。
+- 対象になるのは、zip と `.zip.md5` の両方が付いたリリースだけ（ドラフトは除外）。
+  `.md5` が無い zip は警告を出して飛ばす。
+- GitHub Pages のソースは **GitHub Actions**（`gh api -X POST repos/<owner>/<repo>/pages -f build_type=workflow` で設定済み）。ブランチ配信ではないので `gh-pages` ブランチは存在しない。
+
+ローカルで試すには（GitHub API を読むだけなので副作用はない）:
+
+```bash
+GH_TOKEN=$(gh auth token) ./scripts/manifest.py tkgstrator/Jellyfin-AppleMusic-Metadata /tmp/site
+```
 
 ## バージョンの決め方
 

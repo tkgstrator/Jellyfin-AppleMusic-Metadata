@@ -48,7 +48,30 @@ Program への加入も API キーの設定も不要**で、インストール�
 
 ## インストール
 
-リリースページの zip を、サーバーの Jellyfin バージョンに合わせて選ぶ。
+### プラグインリポジトリから（推奨）
+
+ダッシュボード → プラグイン → リポジトリ で、サーバーの Jellyfin バージョンに合った
+manifest URL を追加し、カタログから **Apple Music (JP/US)** をインストールする。
+
+| Jellyfin | manifest URL |
+| --- | --- |
+| 12.0.x | `https://tkgstrator.github.io/Jellyfin-AppleMusic-Metadata/manifest.json` |
+| 10.11.x | `https://tkgstrator.github.io/Jellyfin-AppleMusic-Metadata/manifest-jellyfin-10.11.json` |
+
+ABI ごとに manifest を分けているのは、1 つにまとめると 12.0 サーバーが 10.11 用の
+アセンブリまで候補に入れてしまうため。
+
+開発版を追いかける場合は `dev/` 配下の manifest を使う（`develop` にマージが入るたびに
+更新される。安定版と混ぜると自動更新で開発版を掴むので別 URL にしてある）。
+
+| Jellyfin | manifest URL |
+| --- | --- |
+| 12.0.x | `https://tkgstrator.github.io/Jellyfin-AppleMusic-Metadata/dev/manifest.json` |
+| 10.11.x | `https://tkgstrator.github.io/Jellyfin-AppleMusic-Metadata/dev/manifest-jellyfin-10.11.json` |
+
+### 手動で
+
+[リリースページ][releases] の zip を Jellyfin バージョンに合わせて選ぶ。
 
 | Jellyfin | 使う zip |
 | --- | --- |
@@ -56,11 +79,9 @@ Program への加入も API キーの設定も不要**で、インストール�
 | 10.11.x | `apple-music_<version>_jellyfin-10.11.zip` |
 
 zip を Jellyfin のデータディレクトリの `plugins/Jellyfin.Plugin.AppleMusic_<version>/`
-に展開し、サーバーを再起動する。
+に展開し、サーバーを再起動する。開発版は [`dev` タグのプレリリース][dev]。
 
-開発版が必要な場合は、[`dev` タグのプレリリース][dev] を使う。`develop` にマージが
-入るたびに更新される。
-
+[releases]: https://github.com/tkgstrator/Jellyfin-AppleMusic-Metadata/releases
 [dev]: https://github.com/tkgstrator/Jellyfin-AppleMusic-Metadata/releases/tag/dev
 
 ## 設定
@@ -106,6 +127,7 @@ dotnet test
 - [x] 開発環境（Dev Container + 動作確認用 Jellyfin 2 台）
 - [x] マルチターゲットビルド（net9.0 / net10.0）とリリース基盤
 - [x] CI（lint / build / test）と develop・タグの自動リリース
+- [x] プラグインリポジトリ（`manifest.json`）の GitHub Pages 公開
 - [x] プラグイン本体の骨格と設定画面
 - [x] カタログクライアント（ストアフロント フォールバック込み）
 - [x] 外部 ID（Apple Music の曲/アルバム/アーティスト ID とストアフロント）
