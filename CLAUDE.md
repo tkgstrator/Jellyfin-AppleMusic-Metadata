@@ -62,11 +62,25 @@ Jellyfin.Plugin.AppleMusic/Catalog/     API クライアント層（Jellyfin 非
   AppleMusicCatalog.cs     ストアフロントのフォールバック
 ```
 
+```
+Jellyfin.Plugin.AppleMusic/ExternalIds/  ProviderKeys, 3 つの IExternalId,
+                                         IExternalUrlProvider
+Jellyfin.Plugin.AppleMusic/Providers/    Album/Artist/Song のメタデータ、
+                                         Album/Artist の画像
+PluginServiceRegistrator.cs              カタログ層の DI 登録
+```
+
 **`Catalog/` は `MediaBrowser.*` を参照しない。** サーバー上でステップ実行できない
 事情があるため、ロジックはここに寄せてユニットテストで検証する。`Providers/` は
 「カタログの戻り値を Jellyfin の型に詰め替えるだけ」の薄い層にとどめる。
 
-`Providers/`, `ExternalIds/` はこれから作る。
+**カタログ ID はストアフロント単位。** ID を保存するときは必ず
+`ProviderKeys.Storefront` も一緒に書く。jp で見つけた ID を us に問い合わせると
+別物を掴む。
+
+`IExternalId` に `UrlFormatString` は無い（10.9 以降 `IExternalUrlProvider` に分離）。
+リンク生成は `AppleMusicExternalUrlProvider` が担い、ストアフロントを含めた
+正しい URL を作る。
 
 ## ビルド・テスト
 
