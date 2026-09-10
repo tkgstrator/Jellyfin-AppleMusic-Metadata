@@ -153,11 +153,7 @@ public sealed class CatalogCache : ICatalogCache
         }
     }
 
-    /// <summary>
-    /// Deletes expired files from the disk tier.
-    /// </summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The number of files removed.</returns>
+    /// <inheritdoc />
     public async Task<int> PruneAsync(CancellationToken cancellationToken)
     {
         if (!Directory.Exists(_root))

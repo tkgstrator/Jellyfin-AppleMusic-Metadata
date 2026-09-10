@@ -29,4 +29,15 @@ public interface ICatalogCache
     /// Removes every entry, from memory and from disk.
     /// </summary>
     void Clear();
+
+    /// <summary>
+    /// Deletes expired entries from the disk tier.
+    /// </summary>
+    /// <remarks>
+    /// Expired entries are skipped on read, but nothing deletes them on its
+    /// own, so without an occasional sweep the cache directory only ever grows.
+    /// </remarks>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of entries removed.</returns>
+    Task<int> PruneAsync(CancellationToken cancellationToken);
 }
