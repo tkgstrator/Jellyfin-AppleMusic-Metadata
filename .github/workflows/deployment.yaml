@@ -113,3 +113,39 @@ jobs:
           files: |
             dist/*.zip
             dist/*.md5
+
+  # Rebuild the Jellyfin plugin repository (manifest.json) from every published
+  # release and serve it from GitHub Pages. Runs after both channels because the
+  # manifest is derived from the release list, not from this run's artifacts.
+  manifest:
+    name: Publish manifest
+    needs: deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    # Only one Pages deployment at a time, even across refs (develop and a tag
+    # can be published back to back).
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build manifests from releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/manifest.py "$GITHUB_REPOSITORY" site
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@v5

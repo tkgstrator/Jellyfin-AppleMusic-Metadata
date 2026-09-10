@@ -24,7 +24,7 @@ services:
 
   # Primary test server — Jellyfin 12.0 (net10.0 ABI). http://localhost:8096
   jellyfin:
-    image: jellyfin/jellyfin:12.0.0
+    image: jellyfin/jellyfin:12.0
     container_name: applemusic-jellyfin
     user: "1000:1000"
     ports:

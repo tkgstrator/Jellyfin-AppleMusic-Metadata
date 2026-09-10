@@ -11,6 +11,11 @@
             <div class="content-primary">
                 <form id="AppleMusicConfigForm">
                     <h2>Backend</h2>
+                    <div class="fieldDescription" style="margin-bottom:1em;">
+                        <strong>Not used yet.</strong> Metadata is currently read straight from the
+                        Apple Music catalog, which needs no account and no key. These settings are
+                        reserved for the upcoming self-hosted backend transport.
+                    </div>
                     <div class="inputContainer">
                         <label class="inputLabel inputLabelUnfocused" for="BackendBaseUrl">Backend base URL</label>
                         <input id="BackendBaseUrl" name="BackendBaseUrl" type="url" is="emby-input"
@@ -78,12 +83,83 @@
                                is="emby-input" min="1" max="300" />
                     </div>
 
+                    <h2>Cache</h2>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="EnableCache" name="EnableCache" type="checkbox" is="emby-checkbox" />
+                            <span>Cache catalog responses</span>
+                        </label>
+                        <div class="fieldDescription">
+                            Stores responses on disk so the same track, album or artist is not looked
+                            up twice. Strongly recommended: a library scan would otherwise repeat the
+                            same album query once per track.
+                        </div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="CacheLifetimeDays">
+                            Cache lifetime (days)
+                        </label>
+                        <input id="CacheLifetimeDays" name="CacheLifetimeDays" type="number"
+                               is="emby-input" min="1" max="3650" />
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="CacheNotFoundLifetimeHours">
+                            Remember "not found" for (hours)
+                        </label>
+                        <input id="CacheNotFoundLifetimeHours" name="CacheNotFoundLifetimeHours"
+                               type="number" is="emby-input" min="1" max="8760" />
+                        <div class="fieldDescription">
+                            Kept shorter than the cache lifetime, since a track missing today may be
+                            added to the catalog tomorrow.
+                        </div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="MaxCacheMemoryMegabytes">
+                            Memory budget (MB)
+                        </label>
+                        <input id="MaxCacheMemoryMegabytes" name="MaxCacheMemoryMegabytes" type="number"
+                               is="emby-input" min="1" max="4096" />
+                        <div class="fieldDescription">
+                            Upper bound on the memory the cache may use. Least recently used entries
+                            are dropped once it is reached, so a large library cannot grow it without
+                            limit.
+                        </div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="MaxPersistedEntryKilobytes">
+                            Largest entry written to disk (KB)
+                        </label>
+                        <input id="MaxPersistedEntryKilobytes" name="MaxPersistedEntryKilobytes"
+                               type="number" is="emby-input" min="0" max="1024" />
+                        <div class="fieldDescription">
+                            Responses above this size stay in memory only. Search responses run to
+                            about 31 KB and are rarely repeated once an id is known, whereas id
+                            lookups are around 1.5 KB and repeat often — the default of 8 KB keeps
+                            the useful ones on disk and the bulky ones off it.
+                        </div>
+                    </div>
+
                     <div>
                         <button is="emby-button" type="submit" class="raised button-submit block emby-button">
                             <span>Save</span>
                         </button>
                     </div>
                 </form>
+
+                <div style="margin-top:2em;">
+                    <h2>Cache maintenance</h2>
+                    <div class="fieldDescription" style="margin-bottom:1em;">
+                        Expired entries are ignored on read but are only deleted by the
+                        <em>Prune the Apple Music cache</em> scheduled task, which runs weekly.
+                        Both actions can also be triggered here.
+                    </div>
+                    <button is="emby-button" type="button" id="PruneCache" class="raised block emby-button">
+                        <span>Prune expired entries</span>
+                    </button>
+                    <button is="emby-button" type="button" id="ClearCache" class="raised block emby-button">
+                        <span>Clear the whole cache</span>
+                    </button>
+                </div>
             </div>
         </div>
         <script type="text/javascript">
@@ -102,7 +178,45 @@
                         document.querySelector('#MaxSearchResults').value = config.MaxSearchResults;
                         document.querySelector('#ArtworkSize').value = config.ArtworkSize;
                         document.querySelector('#RequestTimeoutSeconds').value = config.RequestTimeoutSeconds;
+                        document.querySelector('#EnableCache').checked = config.EnableCache;
+                        document.querySelector('#CacheLifetimeDays').value = config.CacheLifetimeDays;
+                        document.querySelector('#CacheNotFoundLifetimeHours').value =
+                            config.CacheNotFoundLifetimeHours;
+                        document.querySelector('#MaxCacheMemoryMegabytes').value = config.MaxCacheMemoryMegabytes;
+                        document.querySelector('#MaxPersistedEntryKilobytes').value =
+                            config.MaxPersistedEntryKilobytes;
                         Dashboard.hideLoadingMsg();
+                    });
+                });
+
+            document.querySelector('#PruneCache')
+                .addEventListener('click', function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('AppleMusic/Cache/Prune'),
+                        dataType: 'json'
+                    }).then(function (removed) {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Removed ' + removed + ' expired entries.');
+                    }, function () {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Could not prune the cache.');
+                    });
+                });
+
+            document.querySelector('#ClearCache')
+                .addEventListener('click', function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('AppleMusic/Cache/Clear')
+                    }).then(function () {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('The cache has been cleared.');
+                    }, function () {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('Could not clear the cache.');
                     });
                 });
 
@@ -118,6 +232,15 @@
                         config.ArtworkSize = parseInt(document.querySelector('#ArtworkSize').value, 10);
                         config.RequestTimeoutSeconds = parseInt(
                             document.querySelector('#RequestTimeoutSeconds').value, 10);
+                        config.EnableCache = document.querySelector('#EnableCache').checked;
+                        config.CacheLifetimeDays = parseInt(
+                            document.querySelector('#CacheLifetimeDays').value, 10);
+                        config.CacheNotFoundLifetimeHours = parseInt(
+                            document.querySelector('#CacheNotFoundLifetimeHours').value, 10);
+                        config.MaxCacheMemoryMegabytes = parseInt(
+                            document.querySelector('#MaxCacheMemoryMegabytes').value, 10);
+                        config.MaxPersistedEntryKilobytes = parseInt(
+                            document.querySelector('#MaxPersistedEntryKilobytes').value, 10);
                         ApiClient.updatePluginConfiguration(AppleMusicConfig.pluginUniqueId, config)
                             .then(function (result) {
                                 Dashboard.processPluginConfigurationUpdateResult(result);
