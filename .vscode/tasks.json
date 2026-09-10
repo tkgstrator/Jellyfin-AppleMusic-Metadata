@@ -1,0 +1,60 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build",
+      "type": "shell",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "${workspaceFolder}/Jellyfin.Plugin.AppleMusic.slnx",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "test",
+      "type": "shell",
+      "command": "dotnet",
+      "args": [
+        "test",
+        "${workspaceFolder}/Jellyfin.Plugin.AppleMusic.slnx"
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "deploy: jellyfin 12.0",
+      "type": "shell",
+      "command": "./scripts/deploy.sh",
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "deploy: jellyfin 10.11",
+      "type": "shell",
+      "command": "./scripts/deploy.sh --legacy",
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "jellyfin: logs",
+      "type": "shell",
+      "command": "docker logs -f --tail 200 applemusic-jellyfin",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "package",
+      "type": "shell",
+      "command": "./scripts/package.sh",
+      "problemMatcher": []
+    }
+  ]
+}
