@@ -83,6 +83,44 @@
                                is="emby-input" min="1" max="300" />
                     </div>
 
+                    <h2>Cache</h2>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="EnableCache" name="EnableCache" type="checkbox" is="emby-checkbox" />
+                            <span>Cache catalog responses</span>
+                        </label>
+                        <div class="fieldDescription">
+                            Stores responses on disk so the same track, album or artist is not looked
+                            up twice. Strongly recommended: a library scan would otherwise repeat the
+                            same album query once per track.
+                        </div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="CacheLifetimeDays">
+                            Cache lifetime (days)
+                        </label>
+                        <input id="CacheLifetimeDays" name="CacheLifetimeDays" type="number"
+                               is="emby-input" min="1" max="3650" />
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="CacheNotFoundLifetimeHours">
+                            Remember "not found" for (hours)
+                        </label>
+                        <input id="CacheNotFoundLifetimeHours" name="CacheNotFoundLifetimeHours"
+                               type="number" is="emby-input" min="1" max="8760" />
+                        <div class="fieldDescription">
+                            Kept shorter than the cache lifetime, since a track missing today may be
+                            added to the catalog tomorrow.
+                        </div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="MaxCacheEntries">
+                            Maximum cached entries
+                        </label>
+                        <input id="MaxCacheEntries" name="MaxCacheEntries" type="number"
+                               is="emby-input" min="0" max="1000000" />
+                    </div>
+
                     <div>
                         <button is="emby-button" type="submit" class="raised button-submit block emby-button">
                             <span>Save</span>
@@ -107,6 +145,11 @@
                         document.querySelector('#MaxSearchResults').value = config.MaxSearchResults;
                         document.querySelector('#ArtworkSize').value = config.ArtworkSize;
                         document.querySelector('#RequestTimeoutSeconds').value = config.RequestTimeoutSeconds;
+                        document.querySelector('#EnableCache').checked = config.EnableCache;
+                        document.querySelector('#CacheLifetimeDays').value = config.CacheLifetimeDays;
+                        document.querySelector('#CacheNotFoundLifetimeHours').value =
+                            config.CacheNotFoundLifetimeHours;
+                        document.querySelector('#MaxCacheEntries').value = config.MaxCacheEntries;
                         Dashboard.hideLoadingMsg();
                     });
                 });
@@ -123,6 +166,13 @@
                         config.ArtworkSize = parseInt(document.querySelector('#ArtworkSize').value, 10);
                         config.RequestTimeoutSeconds = parseInt(
                             document.querySelector('#RequestTimeoutSeconds').value, 10);
+                        config.EnableCache = document.querySelector('#EnableCache').checked;
+                        config.CacheLifetimeDays = parseInt(
+                            document.querySelector('#CacheLifetimeDays').value, 10);
+                        config.CacheNotFoundLifetimeHours = parseInt(
+                            document.querySelector('#CacheNotFoundLifetimeHours').value, 10);
+                        config.MaxCacheEntries = parseInt(
+                            document.querySelector('#MaxCacheEntries').value, 10);
                         ApiClient.updatePluginConfiguration(AppleMusicConfig.pluginUniqueId, config)
                             .then(function (result) {
                                 Dashboard.processPluginConfigurationUpdateResult(result);

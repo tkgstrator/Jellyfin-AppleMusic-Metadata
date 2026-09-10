@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.AppleMusic.Catalog.Models;
@@ -82,6 +83,26 @@ public class AppleMusicCatalog : IAppleMusicCatalog
             .ToList();
     }
 
+    private async Task<T?> FetchAsync<T>(string url, CancellationToken cancellationToken)
+        where T : class
+    {
+        var body = await _transport.GetAsync(url, cancellationToken);
+        if (string.IsNullOrEmpty(body))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<T>(body, CatalogJson.Options);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Could not parse the response from {Url}", url);
+            return null;
+        }
+    }
+
     private async Task<IReadOnlyList<CatalogItem<TAttributes>>> SearchAsync<TAttributes>(
         string term,
         string type,
@@ -109,7 +130,7 @@ public class AppleMusicCatalog : IAppleMusicCatalog
                 options.MaxSearchResults,
                 Uri.EscapeDataString(options.GetLanguageFor(storefront)));
 
-            var response = await _transport.GetAsync<SearchResponse>(url, cancellationToken);
+            var response = await FetchAsync<SearchResponse>(url, cancellationToken);
             var items = response?.Results is null ? [] : ToItems(select(response.Results), storefront);
             if (items.Count > 0)
             {
@@ -160,7 +181,7 @@ public class AppleMusicCatalog : IAppleMusicCatalog
                 Uri.EscapeDataString(id),
                 Uri.EscapeDataString(options.GetLanguageFor(current)));
 
-            var response = await _transport.GetAsync<ResourceList<TAttributes>>(url, cancellationToken);
+            var response = await FetchAsync<ResourceList<TAttributes>>(url, cancellationToken);
             var items = ToItems(response, current);
             if (items.Count > 0)
             {

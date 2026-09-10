@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using Jellyfin.Plugin.AppleMusic.Catalog;
+using Jellyfin.Plugin.AppleMusic.Catalog.Caching;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.AppleMusic.Configuration;
@@ -47,6 +49,10 @@ public class PluginConfiguration : BasePluginConfiguration
         MaxSearchResults = 25;
         ArtworkSize = 1400;
         RequestTimeoutSeconds = 30;
+        EnableCache = true;
+        CacheLifetimeDays = 30;
+        CacheNotFoundLifetimeHours = 24;
+        MaxCacheEntries = 20000;
     }
 
     /// <summary>
@@ -90,6 +96,27 @@ public class PluginConfiguration : BasePluginConfiguration
     public int RequestTimeoutSeconds { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether catalog responses are cached
+    /// locally so the same lookup is not fetched twice.
+    /// </summary>
+    public bool EnableCache { get; set; }
+
+    /// <summary>
+    /// Gets or sets how many days a cached response stays usable.
+    /// </summary>
+    public int CacheLifetimeDays { get; set; }
+
+    /// <summary>
+    /// Gets or sets how many hours a "not found" answer is remembered.
+    /// </summary>
+    public int CacheNotFoundLifetimeHours { get; set; }
+
+    /// <summary>
+    /// Gets or sets the maximum number of cached entries.
+    /// </summary>
+    public int MaxCacheEntries { get; set; }
+
+    /// <summary>
     /// Gets the storefronts to query, in order.
     /// </summary>
     /// <returns>Ordered storefront identifiers.</returns>
@@ -118,6 +145,21 @@ public class PluginConfiguration : BasePluginConfiguration
             LanguageOverride = LanguageOverride,
             MaxSearchResults = MaxSearchResults,
             ArtworkSize = ArtworkSize,
+        };
+    }
+
+    /// <summary>
+    /// Projects the cache settings onto the options used by the cache itself.
+    /// </summary>
+    /// <returns>Cache options.</returns>
+    public CatalogCacheOptions ToCacheOptions()
+    {
+        return new CatalogCacheOptions
+        {
+            Enabled = EnableCache,
+            Lifetime = TimeSpan.FromDays(Math.Max(1, CacheLifetimeDays)),
+            NegativeLifetime = TimeSpan.FromHours(Math.Max(1, CacheNotFoundLifetimeHours)),
+            MaxEntries = Math.Max(0, MaxCacheEntries),
         };
     }
 }

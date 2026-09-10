@@ -7,19 +7,21 @@ namespace Jellyfin.Plugin.AppleMusic.Catalog;
 /// Carries catalog requests to whatever serves the Apple Music API.
 /// </summary>
 /// <remarks>
-/// Implementations differ only in base URL and how the request is authorised:
-/// the web player token against <c>amp-api</c>, or an API key against a
-/// self-hosted backend. Response shapes are identical either way.
+/// Returns the raw body rather than a deserialized object so that a caching
+/// decorator can store exactly what came back, with no serialization round
+/// trip. Implementations differ only in base URL and how the request is
+/// authorised.
 /// </remarks>
 public interface ICatalogTransport
 {
     /// <summary>
-    /// Issues a GET request and deserializes the response.
+    /// Issues a GET request.
     /// </summary>
-    /// <typeparam name="T">Expected response type.</typeparam>
     /// <param name="relativeUrl">Path and query, starting with '/'.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The deserialized response, or null when the resource was not found.</returns>
-    Task<T?> GetAsync<T>(string relativeUrl, CancellationToken cancellationToken)
-        where T : class;
+    /// <returns>
+    /// The response body, or null when the resource was not found or the
+    /// request was refused in a way the caller should treat as "no result".
+    /// </returns>
+    Task<string?> GetAsync(string relativeUrl, CancellationToken cancellationToken);
 }

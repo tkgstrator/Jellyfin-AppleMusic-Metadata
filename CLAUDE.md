@@ -78,6 +78,20 @@ PluginServiceRegistrator.cs              カタログ層の DI 登録
 `ProviderKeys.Storefront` も一緒に書く。jp で見つけた ID を us に問い合わせると
 別物を掴む。
 
+**`ICatalogTransport` は生の JSON を返す。** デシリアライズは `AppleMusicCatalog`
+の責務。こうしてあるのは、キャッシュがレスポンスをそのまま保存でき、
+シリアライズの往復が要らないため。
+
+**キャッシュは `CachingCatalogTransport` が担う。** 実 transport をラップするので、
+検索も ID 引きも自動的に対象になる。効果は 2 つあり、片方だけでは不十分:
+- **永続キャッシュ** — 同じ URL を二度取りに行かない（`{CachePath}/apple-music/catalog.json`）
+- **同時リクエストの束ね** — ライブラリスキャンはアルバム内の曲を並列処理するため、
+  キャッシュが埋まる前に同一アルバムの問い合わせが同時に何本も飛ぶ。これを 1 本にまとめる。
+
+SQLite は使わない。Jellyfin はプラグインが再利用できる SQLite アセンブリを提供して
+おらず、自前で参照するとプラットフォーム別のネイティブライブラリを同梱することになり、
+サーバーが既に読み込んでいる SQLite と衝突する恐れもあるため。
+
 `IExternalId` に `UrlFormatString` は無い（10.9 以降 `IExternalUrlProvider` に分離）。
 リンク生成は `AppleMusicExternalUrlProvider` が担い、ストアフロントを含めた
 正しい URL を作る。

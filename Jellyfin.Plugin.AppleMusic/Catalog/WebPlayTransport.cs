@@ -1,7 +1,6 @@
 using System;
 using System.Net;
 using System.Net.Http;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -42,8 +41,7 @@ public class WebPlayTransport : ICatalogTransport
     }
 
     /// <inheritdoc />
-    public async Task<T?> GetAsync<T>(string relativeUrl, CancellationToken cancellationToken)
-        where T : class
+    public async Task<string?> GetAsync(string relativeUrl, CancellationToken cancellationToken)
     {
         var token = await _tokenProvider.GetTokenAsync(cancellationToken);
 
@@ -64,24 +62,13 @@ public class WebPlayTransport : ICatalogTransport
 
         if (response.StatusCode == HttpStatusCode.TooManyRequests)
         {
+            // amp-api does not report remaining quota, so there is nothing to
+            // back off against — give up on this lookup rather than retry.
             _logger.LogWarning("Apple Music rate limited the request to {Url}", relativeUrl);
             return null;
         }
 
         response.EnsureSuccessStatusCode();
-
-        var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        await using (stream.ConfigureAwait(false))
-        {
-            try
-            {
-                return await JsonSerializer.DeserializeAsync<T>(stream, CatalogJson.Options, cancellationToken);
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogError(ex, "Could not parse the response from {Url}", relativeUrl);
-                return null;
-            }
-        }
+        return await response.Content.ReadAsStringAsync(cancellationToken);
     }
 }

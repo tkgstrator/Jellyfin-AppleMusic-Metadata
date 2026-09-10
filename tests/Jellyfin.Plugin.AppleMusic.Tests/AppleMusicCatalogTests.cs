@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.AppleMusic.Catalog;
@@ -224,11 +225,13 @@ public class AppleMusicCatalogTests
 
         public List<string> Requests { get; } = [];
 
-        public Task<T?> GetAsync<T>(string relativeUrl, CancellationToken cancellationToken)
-            where T : class
+        public Task<string?> GetAsync(string relativeUrl, CancellationToken cancellationToken)
         {
             Requests.Add(relativeUrl);
-            return Task.FromResult(_responder(relativeUrl) as T);
+            var payload = _responder(relativeUrl);
+            return Task.FromResult(payload is null
+                ? null
+                : JsonSerializer.Serialize(payload, CatalogJson.Options));
         }
     }
 }
