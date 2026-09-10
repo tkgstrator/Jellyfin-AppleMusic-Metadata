@@ -115,7 +115,7 @@ dist/
 ## CI とリリースの流れ
 
 ```
-feature/*  ──PR──▶  develop  ──マージ──▶  main  ──v* タグ──▶  正式リリース
+feature/*  ──PR──▶  develop  ──マージ──▶  master  ──v* タグ──▶  正式リリース
               │                  │
               │                  └─ push ごとに dev プレリリースを更新
               └─ Integration（commitlint / actionlint / lint / build / test）
@@ -141,7 +141,7 @@ lint・ビルド・テストが通らなければ成果物は作られない**�
 
 ### 正式リリース
 
-`main` で `v0.2.0` のようなタグを打って push する。バージョンは 4 桁
+`master` で `v0.2.0` のようなタグを打って push する。バージョンは 4 桁
 （`0.2.0.0`）に正規化される。リリースノートは GitHub が自動生成する。
 
 Jellyfin のプラグインリポジトリ（`manifest.json`）を公開する場合は、この zip の
