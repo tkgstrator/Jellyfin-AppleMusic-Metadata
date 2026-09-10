@@ -17,22 +17,22 @@ public class PluginConfigurationTests
         Assert.Equal(expected, config.GetStorefrontOrder());
     }
 
-    [Theory]
-    [InlineData("jp", "ja-jp")]
-    [InlineData("us", "en-us")]
-    public void GetLanguageFor_DerivesLanguageFromStorefront(string storefront, string expected)
-    {
-        var config = new PluginConfiguration();
-
-        Assert.Equal(expected, config.GetLanguageFor(storefront));
-    }
-
     [Fact]
-    public void GetLanguageFor_HonoursOverride()
+    public void ToCatalogOptions_CarriesEverySetting()
     {
-        var config = new PluginConfiguration { LanguageOverride = "en-gb" };
+        var config = new PluginConfiguration
+        {
+            Storefronts = StorefrontPriority.UnitedStatesOnly,
+            LanguageOverride = "en-gb",
+            MaxSearchResults = 7,
+            ArtworkSize = 600,
+        };
 
-        Assert.Equal("en-gb", config.GetLanguageFor("jp"));
-        Assert.Equal("en-gb", config.GetLanguageFor("us"));
+        var options = config.ToCatalogOptions();
+
+        Assert.Equal(["us"], options.Storefronts);
+        Assert.Equal("en-gb", options.LanguageOverride);
+        Assert.Equal(7, options.MaxSearchResults);
+        Assert.Equal(600, options.ArtworkSize);
     }
 }
