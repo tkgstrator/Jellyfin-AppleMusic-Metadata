@@ -37,7 +37,11 @@
       "dockerDashComposeVersion": "v2"
     },
     "ghcr.io/dhoeric/features/act:1": {},
-    "ghcr.io/devcontainers-community/features/direnv:1": {}
+    "ghcr.io/devcontainers-community/features/direnv:1": {},
+    "ghcr.io/shyim/devcontainers-features/bun:0": {},
+    "ghcr.io/devcontainers/features/node:1.5.0": {
+      "version": "26.5.0"
+    }
   },
   "forwardPorts": [
     8096,
