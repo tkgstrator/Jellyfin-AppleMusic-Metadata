@@ -71,9 +71,11 @@ jobs:
             version="$(echo "$base" | cut -d. -f1-3).${{ github.run_number }}"
             channel="dev"
           fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "channel=$channel"
+          } >> "$GITHUB_OUTPUT"
           echo "Publishing $channel build $version${tag:+ ($tag)}"
 
       - name: Build packages
