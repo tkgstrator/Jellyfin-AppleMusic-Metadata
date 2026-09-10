@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
+    <!-- xunit v3 runs on Microsoft.Testing.Platform: test projects are executables. -->
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Jellyfin.Plugin.AppleMusic.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" Version="4.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The plugin excludes the Jellyfin runtime assemblies (the server supplies
+      them). Tests run outside the server, so they must reference them normally.
+    -->
+    <PackageReference Include="Jellyfin.Controller" Version="$(JellyfinVersion)" />
+    <PackageReference Include="Jellyfin.Model" Version="$(JellyfinVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../Jellyfin.Plugin.AppleMusic/Jellyfin.Plugin.AppleMusic.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,35 @@
+<Project>
+  <PropertyGroup>
+    <!-- Overwritten by CI at release time (see scripts/package.sh). -->
+    <Version>0.1.0.0</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisMode>AllEnabledByDefault</AnalysisMode>
+    <CodeAnalysisRuleSet>$(MSBuildThisFileDirectory)jellyfin.ruleset</CodeAnalysisRuleSet>
+  </PropertyGroup>
+
+  <!--
+    Single source of truth for the Jellyfin ABI each target framework maps to.
+    Evaluated during the inner (per-TFM) build, so it is empty in the outer
+    multi-targeting build — that is expected and harmless.
+
+      net9.0  -> Jellyfin 10.11.x
+      net10.0 -> Jellyfin 12.0.x
+  -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net9.0'">
+    <JellyfinVersion>10.11.11</JellyfinVersion>
+    <JellyfinAbi>10.11.0.0</JellyfinAbi>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <JellyfinVersion>12.0.0</JellyfinVersion>
+    <JellyfinAbi>12.0.0.0</JellyfinAbi>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Jellyfin.Plugin.AppleMusic/Jellyfin.Plugin.AppleMusic.csproj" />
+  <Project Path="tests/Jellyfin.Plugin.AppleMusic.Tests/Jellyfin.Plugin.AppleMusic.Tests.csproj" />
+</Solution>
