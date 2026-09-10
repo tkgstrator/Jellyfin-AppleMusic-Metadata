@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Jellyfin.Plugin.AppleMusic.Catalog;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.AppleMusic.Configuration;
@@ -35,16 +36,6 @@ public enum StorefrontPriority
 public class PluginConfiguration : BasePluginConfiguration
 {
     /// <summary>
-    /// Storefront identifier for Japan.
-    /// </summary>
-    public const string JapanStorefront = "jp";
-
-    /// <summary>
-    /// Storefront identifier for the United States.
-    /// </summary>
-    public const string UnitedStatesStorefront = "us";
-
-    /// <summary>
     /// Initializes a new instance of the <see cref="PluginConfiguration"/> class.
     /// </summary>
     public PluginConfiguration()
@@ -59,9 +50,8 @@ public class PluginConfiguration : BasePluginConfiguration
     }
 
     /// <summary>
-    /// Gets or sets the base URL of the self-hosted Apple Music backend,
-    /// e.g. <c>https://applemusic.example.com</c>. The backend is expected to
-    /// proxy the Apple Music API and return its responses verbatim.
+    /// Gets or sets the base URL of a self-hosted Apple Music backend. Reserved
+    /// for the backend transport; leave empty to use the web player token.
     /// </summary>
     public string BackendBaseUrl { get; set; }
 
@@ -95,7 +85,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public int ArtworkSize { get; set; }
 
     /// <summary>
-    /// Gets or sets the per-request timeout in seconds for backend calls.
+    /// Gets or sets the per-request timeout in seconds for catalog calls.
     /// </summary>
     public int RequestTimeoutSeconds { get; set; }
 
@@ -107,26 +97,27 @@ public class PluginConfiguration : BasePluginConfiguration
     {
         return Storefronts switch
         {
-            StorefrontPriority.JapanThenUnitedStates => [JapanStorefront, UnitedStatesStorefront],
-            StorefrontPriority.UnitedStatesThenJapan => [UnitedStatesStorefront, JapanStorefront],
-            StorefrontPriority.JapanOnly => [JapanStorefront],
-            StorefrontPriority.UnitedStatesOnly => [UnitedStatesStorefront],
-            _ => [JapanStorefront, UnitedStatesStorefront]
+            StorefrontPriority.JapanThenUnitedStates => [CatalogOptions.Japan, CatalogOptions.UnitedStates],
+            StorefrontPriority.UnitedStatesThenJapan => [CatalogOptions.UnitedStates, CatalogOptions.Japan],
+            StorefrontPriority.JapanOnly => [CatalogOptions.Japan],
+            StorefrontPriority.UnitedStatesOnly => [CatalogOptions.UnitedStates],
+            _ => [CatalogOptions.Japan, CatalogOptions.UnitedStates]
         };
     }
 
     /// <summary>
-    /// Gets the Apple Music language tag to use for a storefront.
+    /// Projects this configuration onto the Jellyfin-independent options used by
+    /// the catalog layer.
     /// </summary>
-    /// <param name="storefront">Storefront identifier.</param>
-    /// <returns>Language tag for the Apple Music <c>l</c> parameter.</returns>
-    public string GetLanguageFor(string storefront)
+    /// <returns>Catalog options.</returns>
+    public CatalogOptions ToCatalogOptions()
     {
-        if (!string.IsNullOrWhiteSpace(LanguageOverride))
+        return new CatalogOptions
         {
-            return LanguageOverride;
-        }
-
-        return storefront == JapanStorefront ? "ja-jp" : "en-us";
+            Storefronts = GetStorefrontOrder(),
+            LanguageOverride = LanguageOverride,
+            MaxSearchResults = MaxSearchResults,
+            ArtworkSize = ArtworkSize,
+        };
     }
 }

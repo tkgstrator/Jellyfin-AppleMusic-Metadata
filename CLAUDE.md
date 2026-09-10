@@ -13,11 +13,18 @@ Apple Music のカタログから曲・アルバム・アーティストのメ�
 
 ## 決定済みの設計（勝手に変えない）
 
-1. **Apple Music API は自前バックエンド経由で叩く。** プラグインは `.p8` 秘密鍵も
-   Developer Token も持たない。持つのはバックエンドの URL と任意の API キーだけ。
-2. **バックエンドのレスポンスは Apple 公式スキーマのパススルー。** DTO は Apple の
-   `{ data: [{ id, type, attributes: {...} }] }` に合わせる。独自の平坦化 JSON を
-   前提にしない。
+1. **カタログの取得元は差し替え可能にする。** レスポンススキーマは Apple 公式で統一し、
+   DTO・パース・フォールバック・アートワーク URL 生成は全方式で共有する。差分は
+   「ベース URL」と「認証ヘッダの与え方」の 2 点だけに閉じ込める。
+   - **WebPlay 方式（現在の既定）** — `music.apple.com` の JS バンドルから Web
+     プレイヤー用トークンを取り出し、`amp-api.music.apple.com` を直接叩く。
+     認証は `Authorization: Bearer <token>` と `Origin: https://music.apple.com`。
+     実測は [docs/research/webplay-token.md](docs/research/webplay-token.md)。
+   - **バックエンド方式（将来）** — 自前バックエンドが Developer Token を付与して
+     中継する。プラグインは `.p8` も Developer Token も持たない。契約は
+     [docs/backend.md](docs/backend.md)。
+2. **DTO は Apple 公式スキーマに合わせる。**
+   `{ data: [{ id, type, attributes: {...} }] }`。独自の平坦化 JSON を前提にしない。
 3. **ストアフロントは優先順＋フォールバック。** 設定の順（既定 `jp` → `us`）で
    問い合わせ、見つからなければ次へ。言語 `l` はストアフロントに追従
    （`jp`→`ja-jp`, `us`→`en-us`）。設定で上書き可。
@@ -46,8 +53,20 @@ jellyfin.ruleset          StyleCop / .NET アナライザの重大度設定
 global.json               SDK 10.0.100+ / テストランナーは Microsoft.Testing.Platform
 ```
 
-`Providers/`, `ExternalIds/`, `AppleMusic/`（API クライアント層）はこれから作る。
-先行実装 [lyarenei/jellyfin-plugin-applemusic] の構成が参考になる。
+```
+Jellyfin.Plugin.AppleMusic/Catalog/     API クライアント層（Jellyfin 非依存）
+  Models/            Apple 公式スキーマの DTO
+  ArtworkUrl.cs      {w}x{h} テンプレートの解決
+  WebPlayTokenProvider.cs  バンドルからのトークン抽出・期限管理
+  WebPlayTransport.cs      amp-api への HTTP
+  AppleMusicCatalog.cs     ストアフロントのフォールバック
+```
+
+**`Catalog/` は `MediaBrowser.*` を参照しない。** サーバー上でステップ実行できない
+事情があるため、ロジックはここに寄せてユニットテストで検証する。`Providers/` は
+「カタログの戻り値を Jellyfin の型に詰め替えるだけ」の薄い層にとどめる。
+
+`Providers/`, `ExternalIds/` はこれから作る。
 
 ## ビルド・テスト
 
@@ -58,6 +77,17 @@ dotnet test                           # xunit v3 / Microsoft.Testing.Platform
 dotnet format --verify-no-changes     # CI と同じ書式チェック
 ./scripts/deploy.sh [--legacy]        # 開発用 Jellyfin に反映して再起動
 ./scripts/package.sh [version]        # dist/ にリリース成果物
+```
+
+### 実 API に対する確認
+
+`LiveCatalogTests` は本物の Apple Music エンドポイントを叩く。CI をネットワークに
+依存させないため既定でスキップしてあるが、**Apple が Web プレイヤーのバンドル構成を
+変えたことを検出できる唯一の手段**なので、トークン取得が疑わしいときとリリース前には
+`Skip` を外して手動で回す。
+
+```bash
+dotnet test -f net10.0 --filter "FullyQualifiedName~LiveCatalogTests"
 ```
 
 ### 環境まわりの既知の事情
@@ -122,8 +152,10 @@ CI の commitlint ジョブが検証する。
 
 - `.p8` 秘密鍵・Developer Token・Apple の資格情報をこのリポジトリに置かない。
   設定値としてもプラグインに持たせない（バックエンドの責務）。
-- Apple Music の Web ページのスクレイピングや、Web プレイヤー用トークンの流用を
-  実装しない。公式 API とバックエンド経由に統一する。
+- **Apple Music の Web ページを HTML スクレイピングしない。** WebPlay 方式が使うのは
+  JSON API（`amp-api`）であって、DOM の XPath 依存ではない。先行実装が US 固定
+  だったのは `aria-label='Albums'` のような英語 DOM に依存していたためで、
+  同じ轍を踏まない。
 - Jellyfin のランタイムアセンブリを配布物に含めない。
 - `dist/`, `bin/`, `obj/`, `media/` の中身をコミットしない。
 
