@@ -4,9 +4,9 @@ Apple Music のカタログから**曲・アルバム・アーティスト**の�
 取得して Jellyfin に保存するプラグイン。日本ストアフロントと US ストアフロントの
 両方に対応する。
 
-> **状態: 開発初期。** 現時点で入っているのは開発環境・ビルド/リリース基盤・
-> プラグインの骨格（設定画面まで）で、メタデータ取得ロジックは未実装。
-> 進捗は [ロードマップ](#ロードマップ) を参照。
+> **状態: 開発中。** 曲・アルバム・アーティストのメタデータとアートワークの取得は
+> 実装済み。実サーバーでの動作確認はこれから。進捗は
+> [ロードマップ](#ロードマップ) を参照。
 
 ## 既存プラグインとの違い
 
@@ -24,28 +24,54 @@ Apple Music のカタログから**曲・アルバム・アーティスト**の�
 
 ```
 Jellyfin サーバー
-  └─ Apple Music プラグイン ──HTTPS──▶ 自前バックエンド ──HTTPS──▶ api.music.apple.com
-        設定: バックエンド URL          Developer Token (JWT/ES256)
-             API キー                   を付与して中継
-             ストアフロント優先順        .p8 秘密鍵はここにだけ置く
+  └─ Apple Music プラグイン ──HTTPS──▶ amp-api.music.apple.com
+        Web プレイヤー用トークンを         （Apple Music の内部カタログ API）
+        music.apple.com から取得し、
+        Origin ヘッダを添えて問い合わせ
 ```
 
-Apple Music API は `.p8` 秘密鍵で署名した Developer Token を必須とする。この秘密鍵を
-Jellyfin 側に置かずに済ませるため、署名と中継を担うバックエンドを別に用意し、
-プラグインはそこだけを見る。バックエンドは Apple のレスポンスを**そのまま**返す
-（整形しない）。契約の詳細は [docs/backend.md](docs/backend.md)。
+Apple Music の Web プレイヤーが使うトークンをそのまま利用するため、**Apple Developer
+Program への加入も API キーの設定も不要**で、インストールしてすぐ使える。取得できる
+メタデータは公式 API と同等（実測は
+[docs/research/webplay-token.md](docs/research/webplay-token.md)）。
 
-**バックエンドは本リポジトリには含まれない。** 別途用意する。
+ただしこのトークンは Apple が Web プレイヤーのために配っているものなので、**Apple が
+サイト構成を変えると動かなくなる可能性がある**。その場合に備えて、`.p8` 秘密鍵を持つ
+自前バックエンド経由に切り替えられる設計にしてある（契約は
+[docs/backend.md](docs/backend.md)、実装は未完）。
 
 ## 必要なもの
 
 - Jellyfin 10.11.x または 12.0.x
-- Apple Developer Program のメンバーシップ（`.p8` 鍵の発行に必要）
-- Apple Music API を中継する自前バックエンド
+
+以上。追加の登録も鍵も要らない。
 
 ## インストール
 
-リリースページの zip を、サーバーの Jellyfin バージョンに合わせて選ぶ。
+### プラグインリポジトリから（推奨）
+
+ダッシュボード → プラグイン → リポジトリ で、サーバーの Jellyfin バージョンに合った
+manifest URL を追加し、カタログから **Apple Music (JP/US)** をインストールする。
+
+| Jellyfin | manifest URL |
+| --- | --- |
+| 12.0.x | `https://tkgstrator.github.io/Jellyfin-AppleMusic-Metadata/manifest.json` |
+| 10.11.x | `https://tkgstrator.github.io/Jellyfin-AppleMusic-Metadata/manifest-jellyfin-10.11.json` |
+
+ABI ごとに manifest を分けているのは、1 つにまとめると 12.0 サーバーが 10.11 用の
+アセンブリまで候補に入れてしまうため。
+
+開発版を追いかける場合は `dev/` 配下の manifest を使う（`develop` にマージが入るたびに
+更新される。安定版と混ぜると自動更新で開発版を掴むので別 URL にしてある）。
+
+| Jellyfin | manifest URL |
+| --- | --- |
+| 12.0.x | `https://tkgstrator.github.io/Jellyfin-AppleMusic-Metadata/dev/manifest.json` |
+| 10.11.x | `https://tkgstrator.github.io/Jellyfin-AppleMusic-Metadata/dev/manifest-jellyfin-10.11.json` |
+
+### 手動で
+
+[リリースページ][releases] の zip を Jellyfin バージョンに合わせて選ぶ。
 
 | Jellyfin | 使う zip |
 | --- | --- |
@@ -53,11 +79,9 @@ Jellyfin 側に置かずに済ませるため、署名と中継を担うバッ�
 | 10.11.x | `apple-music_<version>_jellyfin-10.11.zip` |
 
 zip を Jellyfin のデータディレクトリの `plugins/Jellyfin.Plugin.AppleMusic_<version>/`
-に展開し、サーバーを再起動する。
+に展開し、サーバーを再起動する。開発版は [`dev` タグのプレリリース][dev]。
 
-開発版が必要な場合は、[`dev` タグのプレリリース][dev] を使う。`develop` にマージが
-入るたびに更新される。
-
+[releases]: https://github.com/tkgstrator/Jellyfin-AppleMusic-Metadata/releases
 [dev]: https://github.com/tkgstrator/Jellyfin-AppleMusic-Metadata/releases/tag/dev
 
 ## 設定
@@ -66,16 +90,26 @@ zip を Jellyfin のデータディレクトリの `plugins/Jellyfin.Plugin.Appl
 
 | 項目 | 説明 |
 | --- | --- |
-| Backend base URL | 自前バックエンドのベース URL |
-| Backend API key | バックエンドに送る `X-Api-Key`。不要なら空欄 |
 | Storefront order | `jp → us` / `us → jp` / `jp のみ` / `us のみ` |
 | Language override | Apple Music の `l` パラメータを固定したい場合のみ |
 | Max search results | 1 クエリあたりの取得件数（既定 25） |
 | Artwork size | アートワーク URL テンプレートに入れる辺の長さ（既定 1400） |
-| Request timeout | バックエンドへのタイムアウト秒数（既定 30） |
+| Request timeout | リクエストのタイムアウト秒数（既定 30） |
+| Cache catalog responses | ローカルにキャッシュして再取得を防ぐ（既定 ON、強く推奨） |
+| Cache lifetime | キャッシュの有効日数（既定 30 日） |
+| Remember "not found" for | 未ヒットを記憶する時間（既定 24 時間） |
+| Memory budget | キャッシュのメモリ上限（既定 64 MB、LRU で退避） |
+| Largest entry written to disk | これを超える応答はメモリのみ（既定 8 KB） |
+| Backend base URL / API key | 将来のバックエンド方式用。現在は未使用 |
 
 設定後、**ライブラリ設定でメタデータ/画像取得元として `Apple Music` を有効にする**
 必要がある。
+
+### キャッシュの掃除
+
+期限切れのエントリは読み出し時に無視されるが、削除は行われない。**週次のスケジュール
+タスク**「Prune the Apple Music cache」が掃除する（ダッシュボード → スケジュールされた
+タスク）。設定画面からも手動で実行でき、キャッシュ全体の破棄もできる。
 
 ## 開発
 
@@ -93,13 +127,18 @@ dotnet test
 - [x] 開発環境（Dev Container + 動作確認用 Jellyfin 2 台）
 - [x] マルチターゲットビルド（net9.0 / net10.0）とリリース基盤
 - [x] CI（lint / build / test）と develop・タグの自動リリース
+- [x] プラグインリポジトリ（`manifest.json`）の GitHub Pages 公開
 - [x] プラグイン本体の骨格と設定画面
-- [ ] バックエンド API クライアント（ストアフロント フォールバック込み）
-- [ ] 外部 ID（Apple Music の曲/アルバム/アーティスト ID）
-- [ ] アルバムのメタデータ / 画像プロバイダ
-- [ ] アーティストのメタデータ / 画像プロバイダ
-- [ ] 曲のメタデータプロバイダ
+- [x] カタログクライアント（ストアフロント フォールバック込み）
+- [x] 外部 ID（Apple Music の曲/アルバム/アーティスト ID とストアフロント）
+- [x] アルバムのメタデータ / 画像プロバイダ
+- [x] アーティストのメタデータ / 画像プロバイダ
+- [x] 曲のメタデータプロバイダ
+- [x] ローカルキャッシュ（永続化 + 同時リクエストの束ね + 上限管理）
+- [x] キャッシュの掃除（週次タスク）と手動クリア
+- [ ] 実サーバーでの動作確認
 - [ ] 検索結果のスコアリング（表記ゆれ・全角半角・カナ）
+- [ ] バックエンド方式の実装（`.p8` を持つ自前サーバー経由）
 
 ## ライセンス
 
