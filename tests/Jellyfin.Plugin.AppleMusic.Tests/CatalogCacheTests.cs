@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -274,6 +275,38 @@ public sealed class CatalogCacheTests : IDisposable
     }
 
     [Fact]
+    public async Task Transport_DoesNotRememberARateLimitedLookupAsAbsent()
+    {
+        var inner = new FlakyTransport(failures: 1, body: "{\"data\":[]}");
+        var transport = NewTransport(inner);
+
+        await Assert.ThrowsAsync<CatalogRateLimitedException>(
+            () => transport.GetAsync("/v1/catalog/jp/albums/1", TestContext.Current.CancellationToken));
+
+        // The second call must reach the network again instead of hitting a cached null.
+        Assert.Equal("{\"data\":[]}", await transport.GetAsync("/v1/catalog/jp/albums/1", TestContext.Current.CancellationToken));
+        Assert.Equal(2, inner.Calls);
+    }
+
+    [Fact]
+    public async Task Transport_PropagatesRateLimitingToJoinedLookups()
+    {
+        var inner = new FlakyTransport(failures: 1, body: null, delay: TimeSpan.FromMilliseconds(100));
+        var transport = NewTransport(inner);
+
+        var lookups = Enumerable.Range(0, 4)
+            .Select(_ => transport.GetAsync("/v1/catalog/jp/albums/1", TestContext.Current.CancellationToken))
+            .ToArray();
+
+        foreach (var lookup in lookups)
+        {
+            await Assert.ThrowsAsync<CatalogRateLimitedException>(() => lookup);
+        }
+
+        Assert.Equal(1, inner.Calls);
+    }
+
+    [Fact]
     public async Task Transport_GoesStraightThroughWhenCachingIsDisabled()
     {
         var inner = new CountingTransport("{\"data\":[]}");
@@ -295,6 +328,39 @@ public sealed class CatalogCacheTests : IDisposable
 
     private CachingCatalogTransport NewTransport(ICatalogTransport inner, CatalogCacheOptions? options = null)
         => new(inner, NewCache(options), NullLogger<CachingCatalogTransport>.Instance);
+
+    private sealed class FlakyTransport : ICatalogTransport
+    {
+        private readonly string? _body;
+        private readonly TimeSpan _delay;
+        private int _failures;
+        private int _calls;
+
+        public FlakyTransport(int failures, string? body, TimeSpan delay = default)
+        {
+            _failures = failures;
+            _body = body;
+            _delay = delay;
+        }
+
+        public int Calls => _calls;
+
+        public async Task<string?> GetAsync(string relativeUrl, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _calls);
+            if (_delay > TimeSpan.Zero)
+            {
+                await Task.Delay(_delay, cancellationToken);
+            }
+
+            if (Interlocked.Decrement(ref _failures) >= 0)
+            {
+                throw new CatalogRateLimitedException();
+            }
+
+            return _body;
+        }
+    }
 
     private sealed class CountingTransport : ICatalogTransport
     {

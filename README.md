@@ -95,6 +95,7 @@ zip を Jellyfin のデータディレクトリの `plugins/Jellyfin.Plugin.Appl
 | Max search results | 1 クエリあたりの取得件数（既定 25） |
 | Artwork size | アートワーク URL テンプレートに入れる辺の長さ（既定 1400） |
 | Request timeout | リクエストのタイムアウト秒数（既定 30） |
+| Minimum interval between requests | リクエスト間隔の下限 ms（既定 1000）。Apple は search を IP 単位で制限し、一度引っかかると長時間拒否し続けるため、リクエストは常に 1 本ずつ・この間隔で送る。ログに rate limiting が出るなら増やす |
 | Cache catalog responses | ローカルにキャッシュして再取得を防ぐ（既定 ON、強く推奨） |
 | Cache lifetime | キャッシュの有効日数（既定 30 日） |
 | Remember "not found" for | 未ヒットを記憶する時間（既定 24 時間） |
@@ -104,6 +105,15 @@ zip を Jellyfin のデータディレクトリの `plugins/Jellyfin.Plugin.Appl
 
 設定後、**ライブラリ設定でメタデータ/画像取得元として `Apple Music` を有効にする**
 必要がある。
+
+### レート制限にかかったとき
+
+Apple の `search` は IP 単位で制限され、`Retry-After` も残量も返さない。プラグインは
+リクエストを 1 本ずつ間隔を空けて送り、429 を受けたら全体を一時停止（30 秒から倍々、
+最長 5 分）して同じ問い合わせを最大 3 回まで再試行する。それでも拒否され続ける間は
+待たずに諦めるので、スキャン自体は止まらないが、その間に処理された曲は未マッチのまま
+残る。**制限中の未回答はキャッシュされない**ので、解除後にライブラリの
+「メタデータを更新」を掛け直せば埋まる。
 
 ### キャッシュの掃除
 

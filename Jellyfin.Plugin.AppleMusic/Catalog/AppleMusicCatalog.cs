@@ -117,33 +117,46 @@ public class AppleMusicCatalog : IAppleMusicCatalog
         }
 
         var options = _options();
-        foreach (var storefront in options.Storefronts)
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var url = string.Format(
-                CultureInfo.InvariantCulture,
-                "/v1/catalog/{0}/search?term={1}&types={2}&limit={3}&l={4}",
-                Uri.EscapeDataString(storefront),
-                Uri.EscapeDataString(term),
-                type,
-                options.MaxSearchResults,
-                Uri.EscapeDataString(options.GetLanguageFor(storefront)));
-
-            var response = await FetchAsync<SearchResponse>(url, cancellationToken);
-            var items = response?.Results is null ? [] : ToItems(select(response.Results), storefront);
-            if (items.Count > 0)
+            foreach (var storefront in options.Storefronts)
             {
-                _logger.LogInformation(
-                    "Found {Count} {Type} for {Term} in storefront {Storefront}",
-                    items.Count,
-                    type,
-                    term,
-                    storefront);
-                return items;
-            }
+                cancellationToken.ThrowIfCancellationRequested();
 
-            _logger.LogDebug("No {Type} for {Term} in storefront {Storefront}", type, term, storefront);
+                var url = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "/v1/catalog/{0}/search?term={1}&types={2}&limit={3}&l={4}",
+                    Uri.EscapeDataString(storefront),
+                    Uri.EscapeDataString(term),
+                    type,
+                    options.MaxSearchResults,
+                    Uri.EscapeDataString(options.GetLanguageFor(storefront)));
+
+                var response = await FetchAsync<SearchResponse>(url, cancellationToken);
+                var items = response?.Results is null ? [] : ToItems(select(response.Results), storefront);
+                if (items.Count > 0)
+                {
+                    _logger.LogInformation(
+                        "Found {Count} {Type} for {Term} in storefront {Storefront}",
+                        items.Count,
+                        type,
+                        term,
+                        storefront);
+                    return items;
+                }
+
+                _logger.LogDebug("No {Type} for {Term} in storefront {Storefront}", type, term, storefront);
+            }
+        }
+        catch (CatalogRateLimitedException)
+        {
+            // The transport has already paused and retried. Give up on the
+            // whole lookup rather than falling through to the next storefront:
+            // nothing is cached, so the next refresh simply asks again.
+            _logger.LogWarning(
+                "Apple Music did not answer the {Type} search for {Term} because of rate limiting; the item stays unmatched until the next refresh",
+                type,
+                term);
         }
 
         return [];
@@ -169,25 +182,36 @@ public class AppleMusicCatalog : IAppleMusicCatalog
             ? options.Storefronts
             : [storefront];
 
-        foreach (var current in storefronts)
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var url = string.Format(
-                CultureInfo.InvariantCulture,
-                "/v1/catalog/{0}/{1}/{2}?l={3}",
-                Uri.EscapeDataString(current),
-                type,
-                Uri.EscapeDataString(id),
-                Uri.EscapeDataString(options.GetLanguageFor(current)));
-
-            var response = await FetchAsync<ResourceList<TAttributes>>(url, cancellationToken);
-            var items = ToItems(response, current);
-            if (items.Count > 0)
+            foreach (var current in storefronts)
             {
-                _logger.LogDebug("Resolved {Type} {Id} in storefront {Storefront}", type, id, current);
-                return items[0];
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var url = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "/v1/catalog/{0}/{1}/{2}?l={3}",
+                    Uri.EscapeDataString(current),
+                    type,
+                    Uri.EscapeDataString(id),
+                    Uri.EscapeDataString(options.GetLanguageFor(current)));
+
+                var response = await FetchAsync<ResourceList<TAttributes>>(url, cancellationToken);
+                var items = ToItems(response, current);
+                if (items.Count > 0)
+                {
+                    _logger.LogDebug("Resolved {Type} {Id} in storefront {Storefront}", type, id, current);
+                    return items[0];
+                }
             }
+        }
+        catch (CatalogRateLimitedException)
+        {
+            _logger.LogWarning(
+                "Apple Music did not answer the lookup of {Type} {Id} because of rate limiting; the item stays unmatched until the next refresh",
+                type,
+                id);
+            return null;
         }
 
         _logger.LogDebug("Could not resolve {Type} {Id}", type, id);
