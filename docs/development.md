@@ -14,7 +14,7 @@
 | サービス | 中身 | 用途 |
 | --- | --- | --- |
 | `app` | Ubuntu 24.04 + .NET SDK 10.0 / 9.0 | 開発コンテナ（VS Code がここに接続する） |
-| `jellyfin` | `jellyfin/jellyfin:12.0.0` | 動作確認用サーバー <http://localhost:8096> |
+| `jellyfin` | `jellyfin/jellyfin:12.0` | 動作確認用サーバー <http://localhost:8096> |
 | `jellyfin-legacy` | `jellyfin/jellyfin:10.11.11` | 旧 ABI 確認用 <http://localhost:8097>（プロファイル `legacy`） |
 
 `app` と Jellyfin コンテナは名前付きボリュームで `/config` を共有しており、
