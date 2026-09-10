@@ -20,6 +20,9 @@ public class AppleMusicCatalog : IAppleMusicCatalog
     private const string AlbumsType = "albums";
     private const string ArtistsType = "artists";
 
+    // Albums rarely exceed one page of tracks; this only bounds a runaway "next" chain.
+    private const int MaxTrackPages = 20;
+
     private readonly ICatalogTransport _transport;
     private readonly Func<CatalogOptions> _options;
     private readonly ILogger<AppleMusicCatalog> _logger;
@@ -81,6 +84,54 @@ public class AppleMusicCatalog : IAppleMusicCatalog
             .Where(resource => resource.Attributes is not null && !string.IsNullOrEmpty(resource.Id))
             .Select(resource => new CatalogItem<TAttributes>(resource.Id, storefront, resource.Attributes!))
             .ToList();
+    }
+
+    private static IReadOnlyList<string> Ids<TAttributes>(ResourceList<TAttributes>? list)
+        where TAttributes : class
+        => list is null
+            ? []
+            : list.Data.Where(resource => !string.IsNullOrEmpty(resource.Id)).Select(resource => resource.Id).ToList();
+
+    /// <summary>
+    /// Builds the item of an id lookup, carrying the relationships along and
+    /// following the track list to its end when Apple paged it.
+    /// </summary>
+    private async Task<CatalogItem<TAttributes>> ToLookupItemAsync<TAttributes>(
+        Resource<TAttributes> resource,
+        string storefront,
+        string language,
+        CancellationToken cancellationToken)
+        where TAttributes : class
+    {
+        var relationships = resource.Relationships;
+        var tracks = new List<CatalogItem<SongAttributes>>();
+        if (relationships?.Tracks is not null)
+        {
+            tracks.AddRange(ToItems(relationships.Tracks, storefront));
+
+            var next = relationships.Tracks.Next;
+            for (var page = 0; !string.IsNullOrEmpty(next) && page < MaxTrackPages; page++)
+            {
+                var url = next.Contains("l=", StringComparison.Ordinal)
+                    ? next
+                    : next + (next.Contains('?', StringComparison.Ordinal) ? "&" : "?") + "l=" + Uri.EscapeDataString(language);
+                var more = await FetchAsync<TrackList>(url, cancellationToken);
+                if (more is null)
+                {
+                    break;
+                }
+
+                tracks.AddRange(ToItems(more, storefront));
+                next = more.Next;
+            }
+        }
+
+        return new CatalogItem<TAttributes>(resource.Id, storefront, resource.Attributes!)
+        {
+            ArtistIds = Ids(relationships?.Artists),
+            AlbumIds = Ids(relationships?.Albums),
+            Tracks = tracks,
+        };
     }
 
     private async Task<T?> FetchAsync<T>(string url, CancellationToken cancellationToken)
@@ -197,11 +248,11 @@ public class AppleMusicCatalog : IAppleMusicCatalog
                     Uri.EscapeDataString(options.GetLanguageFor(current)));
 
                 var response = await FetchAsync<ResourceList<TAttributes>>(url, cancellationToken);
-                var items = ToItems(response, current);
-                if (items.Count > 0)
+                var resource = response?.Data.FirstOrDefault(r => r.Attributes is not null && !string.IsNullOrEmpty(r.Id));
+                if (resource is not null)
                 {
                     _logger.LogDebug("Resolved {Type} {Id} in storefront {Storefront}", type, id, current);
-                    return items[0];
+                    return await ToLookupItemAsync(resource, current, options.GetLanguageFor(current), cancellationToken);
                 }
             }
         }

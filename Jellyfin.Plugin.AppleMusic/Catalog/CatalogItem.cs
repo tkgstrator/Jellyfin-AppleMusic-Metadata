@@ -1,3 +1,6 @@
+using System.Collections.Generic;
+using Jellyfin.Plugin.AppleMusic.Catalog.Models;
+
 namespace Jellyfin.Plugin.AppleMusic.Catalog;
 
 /// <summary>
@@ -35,4 +38,19 @@ public class CatalogItem<TAttributes>
     /// Gets the attribute payload.
     /// </summary>
     public TAttributes Attributes { get; }
+
+    /// <summary>
+    /// Gets the ids of the related artists. Populated by id lookups only.
+    /// </summary>
+    public IReadOnlyList<string> ArtistIds { get; init; } = [];
+
+    /// <summary>
+    /// Gets the ids of the related albums. Populated by song id lookups only.
+    /// </summary>
+    public IReadOnlyList<string> AlbumIds { get; init; } = [];
+
+    /// <summary>
+    /// Gets the album's tracks in order. Populated by album id lookups only.
+    /// </summary>
+    public IReadOnlyList<CatalogItem<SongAttributes>> Tracks { get; init; } = [];
 }

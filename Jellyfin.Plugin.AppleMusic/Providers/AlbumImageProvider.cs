@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.AppleMusic.Catalog;
 using Jellyfin.Plugin.AppleMusic.ExternalIds;
+using Jellyfin.Plugin.AppleMusic.Organizer;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
@@ -64,10 +66,18 @@ public class AlbumImageProvider : IRemoteImageProvider
 
         var options = Plugin.Instance?.Configuration.ToCatalogOptions() ?? new CatalogOptions();
 
+        // The stored id first, then the id tagged on the directory; either way
+        // no search is needed.
         var id = album.GetProviderId(ProviderKeys.Album);
+        var storefront = album.GetProviderId(ProviderKeys.Storefront);
+        if (string.IsNullOrEmpty(id))
+        {
+            id = FolderTag.Parse(Path.GetFileName(album.Path));
+            storefront = null;
+        }
+
         if (!string.IsNullOrEmpty(id))
         {
-            var storefront = album.GetProviderId(ProviderKeys.Storefront);
             var found = await _catalog.GetAlbumAsync(id, storefront, cancellationToken);
             var url = ArtworkUrl.Resolve(found?.Attributes.Artwork?.Url, options.ArtworkSize);
             return url is null ? [] : [ImageInfo(url, options.ArtworkSize)];
