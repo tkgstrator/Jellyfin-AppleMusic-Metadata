@@ -197,6 +197,28 @@ public class AppleMusicCatalogTests
         Assert.Empty(await catalog.SearchSongsAsync("term", CancellationToken.None));
     }
 
+    [Fact]
+    public async Task SearchSongsAsync_ReturnsEmptyWithoutFallingBackWhenRateLimited()
+    {
+        var transport = new FakeTransport(_ => throw new CatalogRateLimitedException());
+        var catalog = Build(transport);
+
+        var songs = await catalog.SearchSongsAsync("IRIS OUT", CancellationToken.None);
+
+        Assert.Empty(songs);
+        Assert.Single(transport.Requests); // us must not be asked with jp unanswered
+    }
+
+    [Fact]
+    public async Task GetSongAsync_ReturnsNullWhenRateLimited()
+    {
+        var transport = new FakeTransport(_ => throw new CatalogRateLimitedException());
+        var catalog = Build(transport);
+
+        Assert.Null(await catalog.GetSongAsync("1837658529", "jp", CancellationToken.None));
+        Assert.Single(transport.Requests);
+    }
+
     private static AppleMusicCatalog Build(ICatalogTransport transport, CatalogOptions? options = null)
         => new(transport, () => options ?? new CatalogOptions(), NullLogger<AppleMusicCatalog>.Instance);
 

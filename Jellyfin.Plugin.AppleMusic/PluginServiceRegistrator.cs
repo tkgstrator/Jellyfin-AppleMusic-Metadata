@@ -3,6 +3,7 @@ using System.IO;
 using System.Net.Http;
 using Jellyfin.Plugin.AppleMusic.Catalog;
 using Jellyfin.Plugin.AppleMusic.Catalog.Caching;
+using Jellyfin.Plugin.AppleMusic.Catalog.Throttling;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller;
@@ -32,12 +33,17 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             CurrentCacheOptions,
             provider.GetRequiredService<ILogger<CatalogCache>>()));
 
-        // The cache wraps the real transport, so every lookup goes through it.
+        // Cache -> throttle -> network. The cache sits outside so hits are not
+        // paced; the throttle sits outside the network so every real request
+        // is, including the ones the cache issues for misses.
         serviceCollection.AddSingleton<ICatalogTransport>(provider => new CachingCatalogTransport(
-            new WebPlayTransport(
-                CreateHttpClient(provider),
-                provider.GetRequiredService<IWebPlayTokenProvider>(),
-                provider.GetRequiredService<ILogger<WebPlayTransport>>()),
+            new ThrottledCatalogTransport(
+                new WebPlayTransport(
+                    CreateHttpClient(provider),
+                    provider.GetRequiredService<IWebPlayTokenProvider>(),
+                    provider.GetRequiredService<ILogger<WebPlayTransport>>()),
+                CurrentThrottleOptions,
+                provider.GetRequiredService<ILogger<ThrottledCatalogTransport>>()),
             provider.GetRequiredService<ICatalogCache>(),
             provider.GetRequiredService<ILogger<CachingCatalogTransport>>()));
 
@@ -54,6 +60,9 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     /// <returns>The current catalog options.</returns>
     private static CatalogOptions CurrentOptions()
         => Plugin.Instance?.Configuration.ToCatalogOptions() ?? new CatalogOptions();
+
+    private static ThrottleOptions CurrentThrottleOptions()
+        => Plugin.Instance?.Configuration.ToThrottleOptions() ?? new ThrottleOptions();
 
     private static CatalogCacheOptions CurrentCacheOptions()
         => Plugin.Instance?.Configuration.ToCacheOptions() ?? new CatalogCacheOptions();
