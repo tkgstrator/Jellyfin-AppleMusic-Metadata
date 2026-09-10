@@ -59,7 +59,9 @@ Jellyfin.Plugin.AppleMusic/Catalog/     API クライアント層（Jellyfin 非
   Models/            Apple 公式スキーマの DTO
   ArtworkUrl.cs      {w}x{h} テンプレートの解決
   WebPlayTokenProvider.cs  バンドルからのトークン抽出・期限管理
-  WebPlayTransport.cs      amp-api への HTTP
+  WebPlayTransport.cs      amp-api への HTTP（429 は CatalogRateLimitedException）
+  Throttling/              直列化・間隔・429 時のクールダウンと再試行
+  Caching/                 応答キャッシュと同時リクエストの束ね
   AppleMusicCatalog.cs     ストアフロントのフォールバック
 ```
 
@@ -89,6 +91,19 @@ PluginServiceRegistrator.cs              カタログ層の DI 登録
 **`ICatalogTransport` は生の JSON を返す。** デシリアライズは `AppleMusicCatalog`
 の責務。こうしてあるのは、キャッシュがレスポンスをそのまま保存でき、
 シリアライズの往復が要らないため。
+
+**429 は `null` ではなく `CatalogRateLimitedException` で伝える。** `null` は「無かった」
+として 24 時間キャッシュされるため、制限中の未回答を `null` にすると、その間に触った
+曲が全部「Apple Music に無い」扱いで固定される（v0.1.1 で実際に起きた）。例外は
+キャッシュ層を素通りし、`AppleMusicCatalog` が検索・ID 引き単位で捕まえて空を返す
+（次のストアフロントにも進まない）。
+
+**スロットルは `ThrottledCatalogTransport` が担う。** 構成は
+cache → throttle → network。amp-api の `search` は IP 単位で制限され、残量も
+`Retry-After` も返さず、一度引っかかると長時間拒否し続ける（実測: ID 引きは
+通るが search だけ 429 が続く）。だから **並列にしない・間隔を空ける** が唯一の
+対策で、429 後はクールダウンを倍々にしつつ再試行し、上限に達したら待たずに諦める
+（スキャンを何十分も止めないため）。
 
 **キャッシュは `CachingCatalogTransport` が担う。** 実 transport をラップするので、
 検索も ID 引きも自動的に対象になる。効果は 2 つあり、片方だけでは不十分:
