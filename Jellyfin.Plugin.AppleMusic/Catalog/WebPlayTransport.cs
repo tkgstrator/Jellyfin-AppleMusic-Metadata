@@ -62,10 +62,12 @@ public class WebPlayTransport : ICatalogTransport
 
         if (response.StatusCode == HttpStatusCode.TooManyRequests)
         {
-            // amp-api does not report remaining quota, so there is nothing to
-            // back off against — give up on this lookup rather than retry.
-            _logger.LogWarning("Apple Music rate limited the request to {Url}", relativeUrl);
-            return null;
+            // amp-api reports neither remaining quota nor Retry-After. Surface
+            // it as an exception so the caching layer does not remember this
+            // lookup as "not found"; ThrottledCatalogTransport decides whether
+            // and when to retry.
+            _logger.LogDebug("Apple Music rate limited the request to {Url}", relativeUrl);
+            throw new CatalogRateLimitedException();
         }
 
         response.EnsureSuccessStatusCode();

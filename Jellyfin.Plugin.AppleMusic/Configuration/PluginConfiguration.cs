@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Jellyfin.Plugin.AppleMusic.Catalog;
 using Jellyfin.Plugin.AppleMusic.Catalog.Caching;
+using Jellyfin.Plugin.AppleMusic.Catalog.Throttling;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.AppleMusic.Configuration;
@@ -49,6 +50,7 @@ public class PluginConfiguration : BasePluginConfiguration
         MaxSearchResults = 25;
         ArtworkSize = 1400;
         RequestTimeoutSeconds = 30;
+        RequestIntervalMilliseconds = 1000;
         EnableCache = true;
         CacheLifetimeDays = 30;
         CacheNotFoundLifetimeHours = 24;
@@ -95,6 +97,14 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the per-request timeout in seconds for catalog calls.
     /// </summary>
     public int RequestTimeoutSeconds { get; set; }
+
+    /// <summary>
+    /// Gets or sets the minimum time between two catalog requests, in
+    /// milliseconds. Apple limits the search endpoint per IP address and keeps
+    /// refusing for a long time once tripped, so requests are never sent in
+    /// parallel and are spaced out by at least this much.
+    /// </summary>
+    public int RequestIntervalMilliseconds { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether catalog responses are cached
@@ -152,6 +162,18 @@ public class PluginConfiguration : BasePluginConfiguration
             LanguageOverride = LanguageOverride,
             MaxSearchResults = MaxSearchResults,
             ArtworkSize = ArtworkSize,
+        };
+    }
+
+    /// <summary>
+    /// Projects the request pacing settings onto the options used by the throttle.
+    /// </summary>
+    /// <returns>Throttle options.</returns>
+    public ThrottleOptions ToThrottleOptions()
+    {
+        return new ThrottleOptions
+        {
+            MinInterval = TimeSpan.FromMilliseconds(Math.Max(0, RequestIntervalMilliseconds)),
         };
     }
 

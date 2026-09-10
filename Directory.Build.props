@@ -1,9 +1,9 @@
 <Project>
   <PropertyGroup>
     <!-- Overwritten by CI at release time (see scripts/package.sh). -->
-    <Version>0.1.1.0</Version>
-    <AssemblyVersion>0.1.1.0</AssemblyVersion>
-    <FileVersion>0.1.1.0</FileVersion>
+    <Version>0.1.2.0</Version>
+    <AssemblyVersion>0.1.2.0</AssemblyVersion>
+    <FileVersion>0.1.2.0</FileVersion>
   </PropertyGroup>
 
   <PropertyGroup>

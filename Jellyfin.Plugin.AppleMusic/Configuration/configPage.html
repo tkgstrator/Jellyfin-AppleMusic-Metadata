@@ -82,6 +82,18 @@
                         <input id="RequestTimeoutSeconds" name="RequestTimeoutSeconds" type="number"
                                is="emby-input" min="1" max="300" />
                     </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="RequestIntervalMilliseconds">
+                            Minimum interval between requests (ms)
+                        </label>
+                        <input id="RequestIntervalMilliseconds" name="RequestIntervalMilliseconds" type="number"
+                               is="emby-input" min="0" max="60000" step="100" />
+                        <div class="fieldDescription">
+                            Apple limits searches per IP address and keeps refusing for a long time once the
+                            limit is hit. Requests are sent one at a time, at least this far apart. Raise it if
+                            the log reports rate limiting.
+                        </div>
+                    </div>
 
                     <h2>Cache</h2>
                     <div class="checkboxContainer checkboxContainer-withDescription">
@@ -178,6 +190,8 @@
                         document.querySelector('#MaxSearchResults').value = config.MaxSearchResults;
                         document.querySelector('#ArtworkSize').value = config.ArtworkSize;
                         document.querySelector('#RequestTimeoutSeconds').value = config.RequestTimeoutSeconds;
+                        document.querySelector('#RequestIntervalMilliseconds').value =
+                            config.RequestIntervalMilliseconds;
                         document.querySelector('#EnableCache').checked = config.EnableCache;
                         document.querySelector('#CacheLifetimeDays').value = config.CacheLifetimeDays;
                         document.querySelector('#CacheNotFoundLifetimeHours').value =
@@ -232,6 +246,8 @@
                         config.ArtworkSize = parseInt(document.querySelector('#ArtworkSize').value, 10);
                         config.RequestTimeoutSeconds = parseInt(
                             document.querySelector('#RequestTimeoutSeconds').value, 10);
+                        config.RequestIntervalMilliseconds = parseInt(
+                            document.querySelector('#RequestIntervalMilliseconds').value, 10);
                         config.EnableCache = document.querySelector('#EnableCache').checked;
                         config.CacheLifetimeDays = parseInt(
                             document.querySelector('#CacheLifetimeDays').value, 10);
