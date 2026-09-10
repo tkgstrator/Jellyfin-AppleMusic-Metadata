@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Apple Music</title>
+</head>
+<body>
+    <div id="AppleMusicConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
+         data-require="emby-input,emby-button,emby-select,emby-checkbox">
+        <div data-role="content">
+            <div class="content-primary">
+                <form id="AppleMusicConfigForm">
+                    <h2>Backend</h2>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="BackendBaseUrl">Backend base URL</label>
+                        <input id="BackendBaseUrl" name="BackendBaseUrl" type="url" is="emby-input"
+                               placeholder="https://applemusic.example.com" />
+                        <div class="fieldDescription">
+                            Base URL of your self-hosted Apple Music proxy. It must expose the Apple Music
+                            catalog endpoints (<code>/v1/catalog/{storefront}/...</code>) and return the
+                            upstream JSON verbatim.
+                        </div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="BackendApiKey">Backend API key</label>
+                        <input id="BackendApiKey" name="BackendApiKey" type="password" is="emby-input" />
+                        <div class="fieldDescription">
+                            Sent as the <code>X-Api-Key</code> request header. Leave empty if the backend
+                            requires no authentication.
+                        </div>
+                    </div>
+
+                    <h2>Catalog</h2>
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="Storefronts">Storefront order</label>
+                        <select is="emby-select" id="Storefronts" name="Storefronts"
+                                class="emby-select-withcolor emby-select">
+                            <option value="JapanThenUnitedStates">Japan, then United States</option>
+                            <option value="UnitedStatesThenJapan">United States, then Japan</option>
+                            <option value="JapanOnly">Japan only</option>
+                            <option value="UnitedStatesOnly">United States only</option>
+                        </select>
+                        <div class="fieldDescription">
+                            Storefronts are tried in order until a match is found. The Apple Music language
+                            parameter follows the storefront (<code>jp</code> &rarr; <code>ja-jp</code>,
+                            <code>us</code> &rarr; <code>en-us</code>) unless overridden below.
+                        </div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="LanguageOverride">Language override</label>
+                        <input id="LanguageOverride" name="LanguageOverride" type="text" is="emby-input"
+                               placeholder="ja-jp" />
+                        <div class="fieldDescription">
+                            Optional. Forces the Apple Music <code>l</code> parameter for every storefront.
+                            Leave empty to derive it from the storefront.
+                        </div>
+                    </div>
+
+                    <h2>Requests</h2>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="MaxSearchResults">Max search results</label>
+                        <input id="MaxSearchResults" name="MaxSearchResults" type="number" is="emby-input"
+                               min="1" max="100" />
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="ArtworkSize">Artwork size (px)</label>
+                        <input id="ArtworkSize" name="ArtworkSize" type="number" is="emby-input"
+                               min="100" max="5000" />
+                        <div class="fieldDescription">
+                            Edge length substituted into the Apple Music artwork URL template.
+                        </div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="RequestTimeoutSeconds">
+                            Request timeout (seconds)
+                        </label>
+                        <input id="RequestTimeoutSeconds" name="RequestTimeoutSeconds" type="number"
+                               is="emby-input" min="1" max="300" />
+                    </div>
+
+                    <div>
+                        <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                            <span>Save</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <script type="text/javascript">
+            var AppleMusicConfig = {
+                pluginUniqueId: '809f18d0-4e70-412c-ae98-1b8b5a5d730d'
+            };
+
+            document.querySelector('#AppleMusicConfigPage')
+                .addEventListener('pageshow', function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(AppleMusicConfig.pluginUniqueId).then(function (config) {
+                        document.querySelector('#BackendBaseUrl').value = config.BackendBaseUrl;
+                        document.querySelector('#BackendApiKey').value = config.BackendApiKey;
+                        document.querySelector('#Storefronts').value = config.Storefronts;
+                        document.querySelector('#LanguageOverride').value = config.LanguageOverride;
+                        document.querySelector('#MaxSearchResults').value = config.MaxSearchResults;
+                        document.querySelector('#ArtworkSize').value = config.ArtworkSize;
+                        document.querySelector('#RequestTimeoutSeconds').value = config.RequestTimeoutSeconds;
+                        Dashboard.hideLoadingMsg();
+                    });
+                });
+
+            document.querySelector('#AppleMusicConfigForm')
+                .addEventListener('submit', function (e) {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(AppleMusicConfig.pluginUniqueId).then(function (config) {
+                        config.BackendBaseUrl = document.querySelector('#BackendBaseUrl').value;
+                        config.BackendApiKey = document.querySelector('#BackendApiKey').value;
+                        config.Storefronts = document.querySelector('#Storefronts').value;
+                        config.LanguageOverride = document.querySelector('#LanguageOverride').value;
+                        config.MaxSearchResults = parseInt(document.querySelector('#MaxSearchResults').value, 10);
+                        config.ArtworkSize = parseInt(document.querySelector('#ArtworkSize').value, 10);
+                        config.RequestTimeoutSeconds = parseInt(
+                            document.querySelector('#RequestTimeoutSeconds').value, 10);
+                        ApiClient.updatePluginConfiguration(AppleMusicConfig.pluginUniqueId, config)
+                            .then(function (result) {
+                                Dashboard.processPluginConfigurationUpdateResult(result);
+                            });
+                    });
+
+                    e.preventDefault();
+                    return false;
+                });
+        </script>
+    </div>
+</body>
+</html>
