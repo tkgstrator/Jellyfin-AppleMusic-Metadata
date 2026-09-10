@@ -51,7 +51,7 @@ Program への加入も API キーの設定も不要**で、インストール�
 ### プラグインリポジトリから（推奨）
 
 ダッシュボード → プラグイン → リポジトリ で、サーバーの Jellyfin バージョンに合った
-manifest URL を追加し、カタログから **Apple Music (JP/US)** をインストールする。
+manifest URL を追加し、カタログから **Apple Music (JP, US)** をインストールする。
 
 | Jellyfin | manifest URL |
 | --- | --- |
@@ -86,7 +86,7 @@ zip を Jellyfin のデータディレクトリの `plugins/Jellyfin.Plugin.Appl
 
 ## 設定
 
-ダッシュボード → プラグイン → **Apple Music (JP/US)**
+ダッシュボード → プラグイン → **Apple Music (JP, US)**
 
 | 項目 | 説明 |
 | --- | --- |
