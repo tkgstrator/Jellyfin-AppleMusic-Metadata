@@ -43,7 +43,8 @@ Apple Music のカタログから曲・アルバム・アーティストのメ�
 .devcontainer/            Dev Container（app + Jellyfin 12.0 + Jellyfin 10.11）
 .github/workflows/        integration.yaml（commitlint/build/test/format）, release.yaml
 docs/                     backend.md（バックエンド契約）, development.md（開発手順）
-scripts/                  package.sh（リリース）, deploy.sh（開発サーバー反映）, meta.template.json
+scripts/                  package.sh（リリース）, manifest.py（プラグインリポジトリ生成）,
+                          deploy.sh（開発サーバー反映）, meta.template.json
 Jellyfin.Plugin.AppleMusic/
   Plugin.cs               BasePlugin<PluginConfiguration>, IHasWebPages
   Configuration/          PluginConfiguration.cs, configPage.html（埋め込みリソース）
@@ -196,6 +197,13 @@ feature/*  ──PR──▶  develop  ──マージ──▶  master  ──v
 - 開発版のバージョンは `Directory.Build.props` の上 3 桁 + `github.run_number`
   （例 `0.1.0.42`）。正式版はタグ `v0.2.0` を 4 桁に正規化して `0.2.0.0`。
 - `dev` タグのリリースは毎回削除して作り直す（古い zip を残さないため）。
+- リリース公開のあと `manifest` ジョブが `scripts/manifest.py` で**リリース一覧から**
+  プラグインリポジトリ（`manifest.json`）を組み立て、GitHub Pages
+  （<https://tkgstrator.github.io/Jellyfin-AppleMusic-Metadata/>）に配置する。
+  Pages のソースは Actions（`gh-pages` ブランチは無い）。
+  **manifest は ABI ごと・チャンネルごとに分ける**（`manifest.json`,
+  `manifest-jellyfin-10.11.json`, `dev/` 配下に同名 2 つ）。まとめると 12.0
+  サーバーが net9.0 を候補に入れ、安定版利用者が自動更新で dev を掴む。
 
 ## コミット
 
@@ -216,8 +224,6 @@ CI の commitlint ジョブが検証する。
 
 ## 未確定・要相談
 
-- プラグインのリポジトリ manifest（`manifest.json`）を公開するか。公開するなら
-  ホスティング先とリリース CI の追加が必要。
 - 検索結果のスコアリング方針（表記ゆれ、全角/半角、カナ、`feat.` 表記の揺れ）。
 - 曲単位でのマッチングに ISRC を使うか、名前＋アルバム＋トラック番号で照合するか。
 
