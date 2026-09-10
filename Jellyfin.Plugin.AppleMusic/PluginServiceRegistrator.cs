@@ -27,10 +27,10 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             CreateHttpClient(provider),
             provider.GetRequiredService<ILogger<WebPlayTokenProvider>>()));
 
-        serviceCollection.AddSingleton<ICatalogCache>(provider => new FileCatalogCache(
-            CachePath(provider.GetRequiredService<IApplicationPaths>()),
+        serviceCollection.AddSingleton<ICatalogCache>(provider => new CatalogCache(
+            CacheRoot(provider.GetRequiredService<IApplicationPaths>()),
             CurrentCacheOptions,
-            provider.GetRequiredService<ILogger<FileCatalogCache>>()));
+            provider.GetRequiredService<ILogger<CatalogCache>>()));
 
         // The cache wraps the real transport, so every lookup goes through it.
         serviceCollection.AddSingleton<ICatalogTransport>(provider => new CachingCatalogTransport(
@@ -58,8 +58,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     private static CatalogCacheOptions CurrentCacheOptions()
         => Plugin.Instance?.Configuration.ToCacheOptions() ?? new CatalogCacheOptions();
 
-    private static string CachePath(IApplicationPaths paths)
-        => Path.Combine(paths.CachePath, "apple-music", "catalog.json");
+    private static string CacheRoot(IApplicationPaths paths)
+        => Path.Combine(paths.CachePath, "apple-music");
 
     private static HttpClient CreateHttpClient(IServiceProvider provider)
         => provider.GetRequiredService<IHttpClientFactory>().CreateClient(NamedClient.Default);

@@ -12,26 +12,21 @@ public interface ICatalogCache
     /// Reads a cached response.
     /// </summary>
     /// <param name="key">Cache key; the request URL.</param>
-    /// <param name="value">The cached body, or null on a miss. An empty string means "known to be absent".</param>
-    /// <returns>True when a live entry was found.</returns>
-    bool TryGet(string key, out string? value);
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The hit, or null on a miss.</returns>
+    ValueTask<CacheHit?> GetAsync(string key, CancellationToken cancellationToken);
 
     /// <summary>
     /// Stores a response.
     /// </summary>
     /// <param name="key">Cache key; the request URL.</param>
     /// <param name="value">Response body, or null to record that the resource is absent.</param>
-    void Set(string key, string? value);
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes once the entry has been stored.</returns>
+    ValueTask SetAsync(string key, string? value, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Removes every entry.
+    /// Removes every entry, from memory and from disk.
     /// </summary>
     void Clear();
-
-    /// <summary>
-    /// Writes pending changes to disk.
-    /// </summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes once the cache is persisted.</returns>
-    Task FlushAsync(CancellationToken cancellationToken);
 }

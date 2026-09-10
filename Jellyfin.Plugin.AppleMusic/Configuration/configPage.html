@@ -114,11 +114,29 @@
                         </div>
                     </div>
                     <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="MaxCacheEntries">
-                            Maximum cached entries
+                        <label class="inputLabel inputLabelUnfocused" for="MaxCacheMemoryMegabytes">
+                            Memory budget (MB)
                         </label>
-                        <input id="MaxCacheEntries" name="MaxCacheEntries" type="number"
-                               is="emby-input" min="0" max="1000000" />
+                        <input id="MaxCacheMemoryMegabytes" name="MaxCacheMemoryMegabytes" type="number"
+                               is="emby-input" min="1" max="4096" />
+                        <div class="fieldDescription">
+                            Upper bound on the memory the cache may use. Least recently used entries
+                            are dropped once it is reached, so a large library cannot grow it without
+                            limit.
+                        </div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="MaxPersistedEntryKilobytes">
+                            Largest entry written to disk (KB)
+                        </label>
+                        <input id="MaxPersistedEntryKilobytes" name="MaxPersistedEntryKilobytes"
+                               type="number" is="emby-input" min="0" max="1024" />
+                        <div class="fieldDescription">
+                            Responses above this size stay in memory only. Search responses run to
+                            about 31 KB and are rarely repeated once an id is known, whereas id
+                            lookups are around 1.5 KB and repeat often — the default of 8 KB keeps
+                            the useful ones on disk and the bulky ones off it.
+                        </div>
                     </div>
 
                     <div>
@@ -149,7 +167,9 @@
                         document.querySelector('#CacheLifetimeDays').value = config.CacheLifetimeDays;
                         document.querySelector('#CacheNotFoundLifetimeHours').value =
                             config.CacheNotFoundLifetimeHours;
-                        document.querySelector('#MaxCacheEntries').value = config.MaxCacheEntries;
+                        document.querySelector('#MaxCacheMemoryMegabytes').value = config.MaxCacheMemoryMegabytes;
+                        document.querySelector('#MaxPersistedEntryKilobytes').value =
+                            config.MaxPersistedEntryKilobytes;
                         Dashboard.hideLoadingMsg();
                     });
                 });
@@ -171,8 +191,10 @@
                             document.querySelector('#CacheLifetimeDays').value, 10);
                         config.CacheNotFoundLifetimeHours = parseInt(
                             document.querySelector('#CacheNotFoundLifetimeHours').value, 10);
-                        config.MaxCacheEntries = parseInt(
-                            document.querySelector('#MaxCacheEntries').value, 10);
+                        config.MaxCacheMemoryMegabytes = parseInt(
+                            document.querySelector('#MaxCacheMemoryMegabytes').value, 10);
+                        config.MaxPersistedEntryKilobytes = parseInt(
+                            document.querySelector('#MaxPersistedEntryKilobytes').value, 10);
                         ApiClient.updatePluginConfiguration(AppleMusicConfig.pluginUniqueId, config)
                             .then(function (result) {
                                 Dashboard.processPluginConfigurationUpdateResult(result);
