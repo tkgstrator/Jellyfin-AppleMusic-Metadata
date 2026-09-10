@@ -1,0 +1,74 @@
+{
+  "name": "Jellyfin Plugin (Apple Music)",
+  "dockerComposeFile": [
+    "compose.yaml"
+  ],
+  "service": "app",
+  "workspaceFolder": "/home/vscode/app",
+  "shutdownAction": "stopCompose",
+  "remoteUser": "vscode",
+  "remoteEnv": {
+    "ANTHROPIC_BASE_URL": "${localEnv:ANTHROPIC_BASE_URL}",
+    "ANTHROPIC_AUTH_TOKEN": "${localEnv:ANTHROPIC_AUTH_TOKEN}",
+    "WAKATIME_API_KEY": "${localEnv:WAKATIME_API_KEY}"
+  },
+  "containerEnv": {
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
+  },
+  "mounts": [
+    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached,readonly",
+    "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind,consistency=cached,readonly"
+  ],
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "configureZshAsDefaultShell": true
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/dotnet:2": {
+      "version": "10.0",
+      "additionalVersions": "9.0"
+    },
+    "ghcr.io/stu-bell/devcontainer-features/claude-code:0": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+      "moby": false,
+      "dockerDashComposeVersion": "v2"
+    },
+    "ghcr.io/dhoeric/features/act:1": {},
+    "ghcr.io/devcontainers-community/features/direnv:1": {}
+  },
+  "forwardPorts": [
+    8096,
+    8097
+  ],
+  "portsAttributes": {
+    "8096": {
+      "label": "Jellyfin 12.0",
+      "onAutoForward": "notify"
+    },
+    "8097": {
+      "label": "Jellyfin 10.11",
+      "onAutoForward": "silent"
+    }
+  },
+  "postAttachCommand": "/bin/sh .devcontainer/postAttachCommand.sh",
+  "postCreateCommand": "/bin/sh .devcontainer/postCreateCommand.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "EditorConfig.EditorConfig",
+        "PKief.material-icon-theme",
+        "WakaTime.vscode-wakatime",
+        "antfu.file-nesting",
+        "bierner.github-markdown-preview",
+        "bierner.markdown-preview-github-styles",
+        "ms-dotnettools.csharp",
+        "ms-dotnettools.vscode-dotnet-runtime",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {}
+    }
+  }
+}

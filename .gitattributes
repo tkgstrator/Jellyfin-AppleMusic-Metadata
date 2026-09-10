@@ -1,0 +1,38 @@
+# Auto detect text files and perform LF normalization
+* text=auto eol=lf
+
+# Source
+*.cs        text
+*.csproj    text
+*.slnx      text
+*.props     text
+*.targets   text
+*.ruleset   text
+*.json      text
+*.jsonc     text
+*.yaml      text
+*.yml       text
+*.md        text
+*.html      text
+*.css       text
+*.js        text
+*.sh        text eol=lf
+*.zsh       text eol=lf
+Dockerfile  text
+
+# Binary
+*.dll       binary
+*.pdb       binary
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.webp      binary
+*.svg       text
+*.zip       binary
+*.tar.gz    binary
+
+# Generated / lockfiles — hide from PR diff view
+packages.lock.json linguist-generated
+bun.lock           linguist-generated

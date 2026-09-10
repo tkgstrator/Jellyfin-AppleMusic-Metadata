@@ -1,0 +1,84 @@
+{
+  // Editor
+  "editor.formatOnSave": true,
+  "editor.formatOnPaste": false,
+  "editor.rulers": [120],
+  "editor.renderWhitespace": "boundary",
+  "editor.guides.bracketPairs": "active",
+  "editor.stickyScroll.enabled": true,
+
+  // Files
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+  "files.trimFinalNewlines": true,
+  "files.autoSave": "onFocusChange",
+
+  // Explorer noise reduction
+  "files.exclude": {
+    "**/.DS_Store": true,
+    "**/.git": true,
+    "**/bin": true,
+    "**/obj": true,
+    "**/dist": true
+  },
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/bin/**": true,
+    "**/obj/**": true,
+    "**/dist/**": true
+  },
+  "search.exclude": {
+    "**/bin": true,
+    "**/obj": true,
+    "**/dist": true
+  },
+
+  // File nesting: keep the explorer tidy
+  "explorer.fileNesting.enabled": true,
+  "explorer.fileNesting.expand": false,
+  "explorer.fileNesting.patterns": {
+    "*.csproj": "packages.lock.json, *.ruleset",
+    "Directory.Build.props": "global.json, *.slnx",
+    "Dockerfile": "compose.yaml, compose.*.yaml, .dockerignore",
+    ".gitignore": ".gitattributes, .editorconfig",
+    "README.md": "CHANGELOG.md, LICENSE*, CONTRIBUTING.md, CLAUDE.md"
+  },
+
+  // Diff
+  "diffEditor.ignoreTrimWhitespace": false,
+
+  // Git
+  "git.autofetch": true,
+  "git.confirmSync": false,
+  "git.pruneOnFetch": true,
+  "git.branchProtection": ["main"],
+
+  // Terminal
+  "terminal.integrated.scrollback": 10000,
+  "terminal.integrated.defaultProfile.linux": "zsh",
+
+  // Formatters
+  "[csharp]": {
+    "editor.defaultFormatter": "ms-dotnettools.csharp",
+    "editor.formatOnSave": true
+  },
+  "[json]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+  "[yaml]": {
+    "editor.defaultFormatter": "redhat.vscode-yaml"
+  },
+  "[markdown]": {
+    "editor.formatOnSave": false,
+    "files.trimTrailingWhitespace": false
+  },
+
+  // C#
+  "dotnet.defaultSolution": "Jellyfin.Plugin.AppleMusic.slnx",
+  "omnisharp.enableEditorConfigSupport": true,
+  "omnisharp.enableRoslynAnalyzers": true
+}

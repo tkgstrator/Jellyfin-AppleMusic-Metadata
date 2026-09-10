@@ -1,0 +1,59 @@
+name: jellyfin-applemusic
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ../:/home/vscode/app:cached
+      - nuget:/home/vscode/.nuget/packages
+      - jellyfin-config:/jellyfin/config
+      - jellyfin-legacy-config:/jellyfin/config-legacy
+    environment:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
+      # Consumed by scripts/deploy.sh
+      JELLYFIN_CONFIG_DIR: /jellyfin/config
+      JELLYFIN_LEGACY_CONFIG_DIR: /jellyfin/config-legacy
+      JELLYFIN_CONTAINER: applemusic-jellyfin
+      JELLYFIN_LEGACY_CONTAINER: applemusic-jellyfin-legacy
+    tty: true
+    stdin_open: true
+
+  # Primary test server — Jellyfin 12.0 (net10.0 ABI). http://localhost:8096
+  jellyfin:
+    image: jellyfin/jellyfin:12.0.0
+    container_name: applemusic-jellyfin
+    user: "1000:1000"
+    ports:
+      - "8096:8096"
+    volumes:
+      - jellyfin-config:/config
+      - jellyfin-cache:/cache
+      - ../media:/media:cached
+    restart: unless-stopped
+
+  # Secondary test server — Jellyfin 10.11 (net9.0 ABI). http://localhost:8097
+  # Started on demand: `docker compose --profile legacy up -d jellyfin-legacy`
+  jellyfin-legacy:
+    image: jellyfin/jellyfin:10.11.11
+    container_name: applemusic-jellyfin-legacy
+    user: "1000:1000"
+    profiles:
+      - legacy
+    ports:
+      - "8097:8096"
+    volumes:
+      - jellyfin-legacy-config:/config
+      - jellyfin-legacy-cache:/cache
+      - ../media:/media:cached
+    restart: unless-stopped
+
+volumes:
+  nuget:
+  jellyfin-config:
+  jellyfin-cache:
+  jellyfin-legacy-config:
+  jellyfin-legacy-cache:
