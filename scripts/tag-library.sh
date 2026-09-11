@@ -2,11 +2,25 @@
 #
 # tag-library.sh — tag a music library with Apple Music ids from the shell.
 #
-# Renames artist directories, album directories and (unless --no-tracks)
-# track files to the layout the plugin resolves without a single search:
+# Two ways to pin Apple Music ids onto a library, so the plugin resolves it
+# without a single search.
+#
+# --nfo (recommended) writes the ids into the .nfo files Jellyfin already
+# keeps beside the music. Nothing moves, so play counts, favourites and
+# playlists survive:
+#
+#   <applemusicalbumid>456</applemusicalbumid>
+#   <applemusicstorefrontid>jp</applemusicstorefrontid>
+#
+# The default renames artist directories, album directories and (unless
+# --no-tracks) track files instead:
 #
 #   ROOT/Artist/Album/1 - some title.m4a
 #     -> ROOT/Artist-[amid-123]/Album-[amid-456]/01 Title.m4a
+#
+# Renaming works even when Jellyfin has never matched the library and when
+# .nfo saving is switched off, but Jellyfin treats moved files as new items
+# and their play counts are lost.
 #
 # Matching is by exact name only: the artist directory must equal the name of
 # one of the first search results, and the album directory must equal the name
@@ -37,8 +51,11 @@ Usage: tag-library.sh [options] ROOT
   ROOT                 Library root: ROOT/<artist>/<album>/<tracks>
 
 Options:
-  --dry-run            Write the plan only, rename nothing (the default)
-  --apply              Perform the renames in the plan
+  --nfo                Write the ids into album.nfo / artist.nfo instead of
+                       renaming anything. Requires Jellyfin's "Save artwork
+                       and metadata into media folders" to stay on
+  --dry-run            Write the plan only, change nothing (the default)
+  --apply              Perform the changes in the plan
   --plan FILE          Plan file (default: ./tag-library.plan.tsv)
   --undo FILE          Reverse the renames listed in a moves log, then exit
   --no-tracks          Leave track files alone. By default they are renamed
@@ -52,11 +69,13 @@ Options:
   -h, --help           This text
 
 The plan is a TSV of  kind <TAB> from <TAB> to  — read it before --apply.
+With --nfo the rows are  nfo <TAB> file <TAB> the ids to write.
 USAGE
 }
 
 APPLY=0
 DRY_RUN=0
+NFO=0
 PLAN=./tag-library.plan.tsv
 UNDO=
 TRACKS=1
@@ -69,6 +88,7 @@ ROOT=
 
 while [ $# -gt 0 ]; do
     case "$1" in
+        --nfo) NFO=1 ;;
         --dry-run) DRY_RUN=1 ;;
         --apply) APPLY=1 ;;
         --plan) PLAN=$2; shift ;;
@@ -109,6 +129,8 @@ PROGRESS_START=0
 PROGRESS_LIVE=0
 PROGRESS_LABEL=
 PROGRESS_UNIT=artists
+# --nfo edits files in place rather than moving them, so "rename" is wrong.
+CHANGE_NOUN=$([ "$NFO" -eq 1 ] && echo "id write" || echo rename)
 
 # A single line, rewritten in place, when stderr is a terminal. Redirected to
 # a file it would be thousands of identical lines, so there it is printed once
@@ -139,12 +161,12 @@ progress() {
     filled=$(( width * PROGRESS_DONE / PROGRESS_TOTAL ))
     bar=$(printf '%*s' "$filled" '' | tr ' ' '#')$(printf '%*s' $(( width - filled )) '')
     if [ "$PROGRESS_LIVE" -eq 1 ]; then
-        printf '\r\033[K[%s] %3d%%  %d/%d %s  %d album(s)  %d rename(s)  %s elapsed  ETA %s  %s' \
-            "$bar" "$pct" "$PROGRESS_DONE" "$PROGRESS_TOTAL" "$PROGRESS_UNIT" "$albums_matched" "$PLAN_LINES" \
+        printf '\r\033[K[%s] %3d%%  %d/%d %s  %d album(s)  %d %s(s)  %s elapsed  ETA %s  %s' \
+            "$bar" "$pct" "$PROGRESS_DONE" "$PROGRESS_TOTAL" "$PROGRESS_UNIT" "$albums_matched" "$PLAN_LINES" "$CHANGE_NOUN" \
             "$(elapsed_hms "$elapsed")" "$eta" "${PROGRESS_LABEL:0:28}" >&2
     else
-        printf '[%3d%%] %d/%d %s, %d album(s), %d rename(s), %s elapsed, ETA %s — %s\n' \
-            "$pct" "$PROGRESS_DONE" "$PROGRESS_TOTAL" "$PROGRESS_UNIT" "$albums_matched" "$PLAN_LINES" \
+        printf '[%3d%%] %d/%d %s, %d album(s), %d %s(s), %s elapsed, ETA %s — %s\n' \
+            "$pct" "$PROGRESS_DONE" "$PROGRESS_TOTAL" "$PROGRESS_UNIT" "$albums_matched" "$PLAN_LINES" "$CHANGE_NOUN" \
             "$(elapsed_hms "$elapsed")" "$eta" "$PROGRESS_LABEL" >&2
     fi
 }
@@ -161,11 +183,22 @@ if [ -n "$UNDO" ]; then
     [ -f "$UNDO" ] || { log "no such moves log: $UNDO"; exit 2; }
     # Reverse order: artists were renamed after their albums, so they must be
     # put back first for the album paths to exist again.
-    tac "$UNDO" | while IFS=$'\t' read -r from to; do
-        if [ -e "$to" ] && [ ! -e "$from" ]; then
-            mv -n -- "$to" "$from" && log "undo: $to -> $from"
+    tac "$UNDO" | while IFS=$'\t' read -r a b c; do
+        if [ "$a" = nfo ]; then
+            # b is the .nfo, c the backup taken before it was written.
+            if [ "$c" = ABSENT ]; then
+                rm -f -- "$b" && log "undo: removed $b"
+            elif [ -f "$c" ]; then
+                cat "$c" > "$b" && log "undo: restored $b"
+            else
+                log "skip undo (no backup): $b"
+            fi
+            continue
+        fi
+        if [ -e "$b" ] && [ ! -e "$a" ]; then
+            mv -n -- "$b" "$a" && log "undo: $b -> $a"
         else
-            log "skip undo (state changed): $to"
+            log "skip undo (state changed): $b"
         fi
     done
     exit 0
@@ -341,6 +374,54 @@ album_tracks() {
 
 PLAN_LINES=0
 
+# nfo_value FILE ELEMENT -> the element's text, if the file has it.
+nfo_value() {
+    [ -f "$1" ] || return 1
+    sed -n "s#.*<$2>\([^<]*\)</$2>.*#\1#p" "$1" | head -1
+}
+
+# plan_nfo FILE KIND ID STOREFRONT — records an nfo write unless the file
+# already says exactly that. KIND is album or artist.
+plan_nfo() {
+    local file=$1 kind=$2 id=$3 sf=$4 have_id have_sf
+    have_id=$(nfo_value "$file" "applemusic${kind}id" || true)
+    have_sf=$(nfo_value "$file" "applemusicstorefrontid" || true)
+    if [ "$have_id" = "$id" ] && [ "$have_sf" = "$sf" ]; then
+        return 1
+    fi
+    plan_line nfo "$file" "applemusic${kind}id=$id applemusicstorefrontid=$sf"
+    return 0
+}
+
+# write_nfo FILE KIND ID STOREFRONT — replaces the two elements, or inserts
+# them before the closing tag. Creates a minimal file when none exists:
+# Jellyfin's parser only reads the elements that are present, so a file
+# carrying just a title and the ids does not blank anything out.
+write_nfo() {
+    local file=$1 kind=$2 id=$3 sf=$4 root title tmp
+    root=$([ "$kind" = album ] && echo album || echo artist)
+    if [ ! -f "$file" ]; then
+        title=$(basename "$(dirname "$file")")
+        title=${title//&/\&amp;}; title=${title//</\&lt;}; title=${title//>/\&gt;}
+        printf '<?xml version="1.0" encoding="utf-8" standalone="yes"?>\n<%s>\n  <title>%s</title>\n  <applemusic%sid>%s</applemusic%sid>\n  <applemusicstorefrontid>%s</applemusicstorefrontid>\n</%s>\n' \
+            "$root" "$title" "$kind" "$id" "$kind" "$sf" "$root" > "$file"
+        return 0
+    fi
+    tmp="$file.amtag.$$"
+    sed -e "/<applemusic${kind}id>/d" -e "/<applemusicstorefrontid>/d" \
+        -e "s#</$root>#  <applemusic${kind}id>$id</applemusic${kind}id>\n  <applemusicstorefrontid>$sf</applemusicstorefrontid>\n</$root>#" \
+        "$file" > "$tmp"
+    # Only replace the original once the rewrite has actually produced the
+    # elements; a missing closing tag would otherwise silently drop them.
+    if grep -q "<applemusic${kind}id>$id</applemusic${kind}id>" "$tmp"; then
+        cat "$tmp" > "$file"
+        rm -f "$tmp"
+        return 0
+    fi
+    rm -f "$tmp"
+    return 1
+}
+
 plan_line() {
     printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$PLAN"
     PLAN_LINES=$(( PLAN_LINES + 1 ))
@@ -439,8 +520,8 @@ for artist_dir in "${artist_dirs[@]}"; do
             PROGRESS_DONE=$((PROGRESS_DONE + 1)); progress; continue
         fi
         artist_id=${hit%%$'\t'*}; sf=${hit#*$'\t'}
-        new_artist_dir="$ROOT/$(sanitize "$artist")-[amid-$artist_id]"
-        if [ -e "$new_artist_dir" ]; then
+        new_artist_dir=$([ "$NFO" -eq 1 ] && printf '%s' "$artist_dir" || printf '%s' "$ROOT/$(sanitize "$artist")-[amid-$artist_id]")
+        if [ "$NFO" -eq 0 ] && [ -e "$new_artist_dir" ]; then
             progress_clear; detail "[skip] target exists: $new_artist_dir"
             artists_skipped=$((artists_skipped + 1))
             PROGRESS_DONE=$((PROGRESS_DONE + 1)); progress; continue
@@ -448,6 +529,9 @@ for artist_dir in "${artist_dirs[@]}"; do
     fi
     artists_matched=$((artists_matched + 1))
     progress_clear; detail "[artist] $artist -> $artist_id ($sf)"
+    if [ "$NFO" -eq 1 ]; then
+        plan_nfo "$artist_dir/artist.nfo" artist "$artist_id" "$sf" || true
+    fi
 
     albums=$(artist_albums "$artist_id" "$sf") || albums=
     [ "$RATE_LIMITED" -eq 1 ] && break
@@ -466,10 +550,16 @@ for artist_dir in "${artist_dirs[@]}"; do
         if [ -z "$album_id" ]; then
             album_id=${album_ids["$album"]:-}
             if [ -z "$album_id" ]; then progress_clear; detail "  [skip] no exact album match: $album"; continue; fi
-            new_album_dir="$artist_dir/$(sanitize "$album")-[amid-$album_id]"
+            [ "$NFO" -eq 1 ] || new_album_dir="$artist_dir/$(sanitize "$album")-[amid-$album_id]"
         fi
         albums_matched=$((albums_matched + 1))
         progress_clear; detail "  [album] $album -> $album_id"
+
+        if [ "$NFO" -eq 1 ]; then
+            plan_nfo "$album_dir/album.nfo" album "$album_id" "$sf" || true
+            continue
+        fi
+
         # Tracks first: their paths are relative to the album directory as it
         # is now, and the plan is applied top to bottom.
         if [ "$TRACKS" -eq 1 ]; then
@@ -489,21 +579,40 @@ done
 progress_clear
 log ""
 log "artists: $artists_matched of $artists_total matched ($artists_skipped skipped); albums: $albums_matched of $albums_total matched"
-log "plan: $PLAN ($(wc -l < "$PLAN") rename(s))"
+log "plan: $PLAN ($(wc -l < "$PLAN") $CHANGE_NOUN(s))"
 [ "$RATE_LIMITED" -eq 1 ] && log "stopped early because Apple Music refused; run again later to continue from the cache"
 
 # ---------------------------------------------------------------- apply -----
 
 if [ "$APPLY" -eq 1 ]; then
     MOVES="${PLAN%.tsv}.moves.$(date +%Y%m%d-%H%M%S).log"
+    BACKUPS="${PLAN%.tsv}.backups"
+    mkdir -p "$BACKUPS"
     applied=0; failed=0
     PROGRESS_TOTAL=$(wc -l < "$PLAN"); PROGRESS_DONE=0; PROGRESS_START=$(date +%s)
-    PROGRESS_UNIT=renames; PROGRESS_LABEL=
+    PROGRESS_UNIT=changes; PROGRESS_LABEL=
     # File renames come before their album directory, album directories
     # before their artist directory — the plan was written in that order.
     while IFS=$'\t' read -r kind from to; do
         [ -n "$kind" ] || continue
         PROGRESS_DONE=$((PROGRESS_DONE + 1)); PROGRESS_LABEL=${from##*/}; progress live-only
+
+        if [ "$kind" = nfo ]; then
+            # Keep the file as it was, so --undo can put it back byte for byte.
+            # A file that did not exist is recorded as such, and undo deletes it.
+            backup="$BACKUPS/$(printf '%s' "$from" | sha256sum | cut -c1-32).nfo"
+            if [ -f "$from" ]; then cp -p -- "$from" "$backup"; else backup=ABSENT; fi
+            id=${to#*applemusic}; id=${id%%id=*}
+            value=${to#*id=}; value=${value%% *}
+            store=${to##*applemusicstorefrontid=}
+            if write_nfo "$from" "$id" "$value" "$store"; then
+                printf 'nfo\t%s\t%s\n' "$from" "$backup" >> "$MOVES"; applied=$((applied + 1))
+            else
+                progress_clear; log "[failed]  could not write ids into $from"; failed=$((failed + 1))
+            fi
+            continue
+        fi
+
         if [ ! -e "$from" ]; then progress_clear; log "[missing] $from"; failed=$((failed + 1)); continue; fi
         if [ -e "$to" ]; then progress_clear; log "[exists]  $to"; failed=$((failed + 1)); continue; fi
         if mv -n -- "$from" "$to"; then
@@ -514,8 +623,12 @@ if [ "$APPLY" -eq 1 ]; then
     done < "$PLAN"
     progress_clear
     PROGRESS_LIVE=0; progress
-    log "applied $applied rename(s), $failed skipped; moves logged to $MOVES (undo with --undo $MOVES)"
-    log "now run a library scan in Jellyfin: the moved directories are picked up by id, without searching"
+    log "applied $applied change(s), $failed skipped; logged to $MOVES (undo with --undo $MOVES)"
+    if [ "$NFO" -eq 1 ]; then
+        log "now refresh the library's metadata in Jellyfin: the ids in the .nfo files are read back, without searching"
+    else
+        log "now run a library scan in Jellyfin: the moved directories are picked up by id, without searching"
+    fi
 else
-    log "dry run — nothing renamed. Review the plan, then re-run with --apply"
+    log "dry run — nothing changed. Review the plan, then re-run with --apply"
 fi
