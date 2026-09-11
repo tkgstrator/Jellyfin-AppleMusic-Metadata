@@ -119,6 +119,19 @@ PluginServiceRegistrator.cs              カタログ層の DI 登録
 事情があるため、ロジックはここに寄せてユニットテストで検証する。`Providers/` は
 「カタログの戻り値を Jellyfin の型に詰め替えるだけ」の薄い層にとどめる。
 
+**アーティストの ID 引きだけ `extend` が要る。** アルバムは `editorialNotes` が
+既定で返るが、**アーティストには `editorialNotes` が存在しない**（実測: `extend` を
+付けても返らない）。代わりに `extend=artistBio,bornOrFormed,origin` で経歴・生年・
+出身国が返る。`AppleMusicCatalog.ArtistExtend` がこれを付ける。`bornOrFormed` は
+`l` に追従して現地語で返る（`1991年3月10日` / `March 10, 1991`）ので、
+`ArtistMetadataProvider.ParseBornOrFormed` が和式・英式・年のみを順に試す。
+`artistBio` は `<br>` を含むため `ToPlainText` で改行に直す。
+
+**アートワークはテンプレートで返る。URL を解決するだけで、音声ファイルには
+埋め込まない。** `{w}x{h}{c}.{f}` の `{c}` は切り抜き指定で、`artwork` の
+`defaultCropCode` に従う（アーティストは `ac` のことがある）。ダウンロードと
+保存は Jellyfin の担当。
+
 **カタログ ID はストアフロント単位。** ID を保存するときは必ず
 `ProviderKeys.Storefront` も一緒に書く。jp で見つけた ID を us に問い合わせると
 別物を掴む。

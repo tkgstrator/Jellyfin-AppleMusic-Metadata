@@ -12,6 +12,13 @@ public class Artwork
     public string? Url { get; set; }
 
     /// <summary>
+    /// Gets or sets the crop Apple wants applied to this image, for templates
+    /// carrying a <c>{c}</c> placeholder. Artist portraits ask for <c>ac</c>,
+    /// which keeps the face centred; album covers are square and omit it.
+    /// </summary>
+    public string? DefaultCropCode { get; set; }
+
+    /// <summary>
     /// Gets or sets the native width of the source image.
     /// </summary>
     public int? Width { get; set; }

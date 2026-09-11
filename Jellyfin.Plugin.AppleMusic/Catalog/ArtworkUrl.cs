@@ -22,6 +22,21 @@ public static class ArtworkUrl
     /// <param name="size">Edge length in pixels, used for both width and height.</param>
     /// <returns>A concrete URL, or null when there is no usable template.</returns>
     public static string? Resolve(string? template, int size)
+        => Resolve(template, size, null);
+
+    /// <summary>
+    /// Substitutes the size placeholders in an artwork template, applying the
+    /// crop Apple asks for.
+    /// </summary>
+    /// <param name="template">Artwork URL template. May be null or empty.</param>
+    /// <param name="size">Edge length in pixels, used for both width and height.</param>
+    /// <param name="cropCode">
+    /// Crop code from the artwork descriptor. Artist portraits carry
+    /// <c>ac</c>, which crops around the subject rather than the middle of a
+    /// non-square image; null falls back to the plain letterbox crop.
+    /// </param>
+    /// <returns>A concrete URL, or null when there is no usable template.</returns>
+    public static string? Resolve(string? template, int size, string? cropCode)
     {
         if (string.IsNullOrWhiteSpace(template))
         {
@@ -34,10 +49,11 @@ public static class ArtworkUrl
         }
 
         var edge = size.ToString(CultureInfo.InvariantCulture);
+        var crop = string.IsNullOrWhiteSpace(cropCode) ? DefaultCropCode : cropCode;
         return template
             .Replace("{w}", edge, StringComparison.Ordinal)
             .Replace("{h}", edge, StringComparison.Ordinal)
-            .Replace("{c}", DefaultCropCode, StringComparison.Ordinal)
+            .Replace("{c}", crop, StringComparison.Ordinal)
             .Replace("{f}", DefaultFormat, StringComparison.Ordinal);
     }
 }
