@@ -144,6 +144,28 @@ zip を Jellyfin のデータディレクトリの `plugins/Jellyfin.Plugin.Appl
 - アルバムディレクトリごと移動するので cover.jpg や .cue も一緒に動く。`CD1/`
   `CD2/` のようなサブディレクトリは `1-01 曲名.ext` の形に平坦化される
 
+### シェルからの整理（`scripts/tag-library.sh`）
+
+プラグインを更新せず、ライブラリが見えるターミナルから同じ `[amid-…]` 付けを行う
+スクリプト。ディレクトリ名の**完全一致**だけで判定する（アーティストは検索結果の名前、
+アルバムはそのアーティストのディスコグラフィの名前）。判定規則と名前の無害化は
+プラグインの整理機能と同じなので、あとから Jellyfin 側で整理タスクを回しても衝突しない。
+
+```bash
+# 必要なもの: bash 4+, curl, jq。ライブラリがマウントされている場所ならどこでも
+./scripts/tag-library.sh /music                 # dry run。計画を tag-library.plan.tsv に書く
+./scripts/tag-library.sh --tracks /music        # 曲ファイルも 01 曲名.ext に改名する計画
+./scripts/tag-library.sh --apply /music         # 計画を実行。改名は moves ログに残る
+./scripts/tag-library.sh --undo tag-library.plan.moves.<日時>.log   # 元に戻す
+./scripts/tag-library.sh --only 米津玄師 /music  # 1 アーティストだけ試す
+```
+
+- 検索はアーティスト 1 件につき 1 回、その先は ID 引きのみ。直列 1 秒間隔で送り、
+  429 なら 30 秒 → 60 秒 → 120 秒待って諦め、そこまでの計画を書いて終わる。
+  応答はディスクにキャッシュされるので、再実行は続きから進む
+- 一致しなかったアーティスト・アルバムは `[skip]` としてログに出るだけで触らない
+- 実行後に Jellyfin でライブラリスキャンを掛ける。移動後の項目は ID で引かれる
+
 ### アーティスト名のカバレッジ計測
 
 ライブラリのアーティスト名を 1 件ずつ Apple Music で検索し、**名前だけで何 % を
