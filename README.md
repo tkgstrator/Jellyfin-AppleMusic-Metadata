@@ -127,7 +127,9 @@ zip を Jellyfin のデータディレクトリの `plugins/Jellyfin.Plugin.Appl
 手順:
 
 1. まず通常どおりスキャンしてメタデータを取る（ここだけ検索が走る）
-2. ダッシュボード → プラグイン → Apple Music → **Preview moves** で移動予定を確認
+2. ダッシュボード → プラグイン → Apple Music → **Preview moves** で移動予定を確認。
+   結果はアーティストごとにまとまって出る（アルバム数・移動するアルバム数・改名する
+   曲数の概要と、その下にアルバム 1 枚ずつの移動先）
 3. 問題なければ **Apply moves now**。終わるとライブラリスキャンが自動で走る
 4. 以後は「Organize the library by Apple Music ids」タスクをスケジュールしてもよい。
    設定の **Dry run** が ON の間はログに書くだけなので、確認してから OFF にする

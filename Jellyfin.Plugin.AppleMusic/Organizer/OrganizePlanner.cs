@@ -54,6 +54,7 @@ public class OrganizePlanner
     {
         var moves = new List<PlannedMove>();
         var skipped = new List<string>();
+        var identity = new AlbumIdentity(artistName, artistId, catalogAlbum.Id);
 
         var root = Path.TrimEndingDirectorySeparator(album.LibraryRoot);
         var currentDir = Path.TrimEndingDirectorySeparator(album.Path);
@@ -64,13 +65,13 @@ public class OrganizePlanner
         if (!IsInside(root, currentDir))
         {
             skipped.Add($"{album.Name}: {currentDir} is not inside the library folder {root}");
-            return new AlbumPlan(album.Name, moves, skipped, null, targetArtistDir);
+            return Build(album.Name, moves, skipped, null, targetArtistDir, identity, string.Empty);
         }
 
         if (album.Tracks.Any(track => !IsInside(currentDir, track.Path)))
         {
             skipped.Add($"{album.Name}: not every track lives under {currentDir}, leaving the album alone");
-            return new AlbumPlan(album.Name, moves, skipped, null, targetArtistDir);
+            return Build(album.Name, moves, skipped, null, targetArtistDir, identity, string.Empty);
         }
 
         var albumMoves = !PathEquals(currentDir, targetAlbumDir);
@@ -79,7 +80,7 @@ public class OrganizePlanner
             if (_exists(targetAlbumDir))
             {
                 skipped.Add($"{album.Name}: {targetAlbumDir} already exists");
-                return new AlbumPlan(album.Name, moves, skipped, null, targetArtistDir);
+                return Build(album.Name, moves, skipped, null, targetArtistDir, identity, string.Empty);
             }
 
             moves.Add(new PlannedMove(MoveKind.Directory, currentDir, targetAlbumDir));
@@ -96,8 +97,24 @@ public class OrganizePlanner
             vacated = null;
         }
 
-        return new AlbumPlan(album.Name, moves, skipped, vacated, targetArtistDir);
+        return Build(album.Name, moves, skipped, vacated, targetArtistDir, identity, albumMoves ? targetAlbumDir : currentDir);
     }
+
+    private static AlbumPlan Build(
+        string album,
+        IReadOnlyList<PlannedMove> moves,
+        IReadOnlyList<string> skipped,
+        string? vacated,
+        string targetArtistDirectory,
+        AlbumIdentity identity,
+        string targetAlbumDirectory)
+        => new(album, moves, skipped, vacated, targetArtistDirectory)
+        {
+            Artist = identity.ArtistName,
+            ArtistId = identity.ArtistId,
+            AlbumId = identity.AlbumId,
+            TargetAlbumDirectory = targetAlbumDirectory,
+        };
 
     private static bool IsInside(string parent, string path)
     {
@@ -190,4 +207,6 @@ public class OrganizePlanner
             moves.Add(new PlannedMove(MoveKind.File, from, to));
         }
     }
+
+    private readonly record struct AlbumIdentity(string ArtistName, string ArtistId, string AlbumId);
 }

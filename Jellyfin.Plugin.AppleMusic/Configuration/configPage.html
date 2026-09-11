@@ -301,15 +301,30 @@
 
             function showOrganizeReport(report) {
                 var lines = [];
-                report.Moves.forEach(function (move) {
-                    lines.push(((move.Kind === 0 || move.Kind === 'Directory') ? '[dir]  ' : '[file] ') + move.From + '\n    -> ' + move.To);
+                // Artist by artist: the flat move list runs to thousands of
+                // paths on a real library and cannot be read.
+                (report.Artists || []).forEach(function (artist) {
+                    var name = artist.Artist || '(unresolved)';
+                    lines.push(name + (artist.ArtistId ? '  [amid-' + artist.ArtistId + ']' : '') +
+                        '  —  ' + artist.AlbumCount + ' album(s), ' + artist.MovedAlbums + ' moving, ' +
+                        artist.TrackRenames + ' track rename(s)' +
+                        (artist.SkippedCount ? ', ' + artist.SkippedCount + ' skipped' : ''));
+                    artist.Albums.forEach(function (album) {
+                        if (album.TargetName) {
+                            lines.push('    ' + album.Album + '\n      -> ' + album.TargetName +
+                                (album.TrackRenames ? '  (' + album.TrackRenames + ' track rename(s))' : ''));
+                        } else {
+                            lines.push('    ' + album.Album + '  (stays put)');
+                        }
+                        album.Skipped.forEach(function (reason) { lines.push('    [skip] ' + reason); });
+                    });
+                    lines.push('');
                 });
-                report.Skipped.forEach(function (reason) { lines.push('[skip] ' + reason); });
                 (report.Failed || []).forEach(function (reason) { lines.push('[FAIL] ' + reason); });
                 document.querySelector('#OrganizeSummary').textContent =
                     (report.DryRun ? 'Preview: ' : 'Applied ' + report.Applied + ' of ') +
-                    report.Moves.length + ' move(s) across ' + report.Albums + ' album(s), ' +
-                    report.Skipped.length + ' skipped' +
+                    report.Moves.length + ' move(s) across ' + report.Albums + ' album(s) by ' +
+                    report.ArtistCount + ' artist(s), ' + report.Skipped.length + ' skipped' +
                     (report.Failed && report.Failed.length ? ', ' + report.Failed.length + ' failed' : '') + '.';
                 document.querySelector('#OrganizeDetails').textContent =
                     lines.length ? lines.join('\n') : 'Nothing to do.';
