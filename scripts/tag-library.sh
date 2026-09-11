@@ -2,10 +2,10 @@
 #
 # tag-library.sh — tag a music library with Apple Music ids from the shell.
 #
-# Renames artist and album directories to the layout the plugin resolves
-# without a single search:
+# Renames artist directories, album directories and (unless --no-tracks)
+# track files to the layout the plugin resolves without a single search:
 #
-#   ROOT/Artist/Album/01 Title.m4a
+#   ROOT/Artist/Album/1 - some title.m4a
 #     -> ROOT/Artist-[amid-123]/Album-[amid-456]/01 Title.m4a
 #
 # Matching is by exact name only: the artist directory must equal the name of
@@ -14,9 +14,9 @@
 # sanitised the way the plugin does (/ \ : * ? " < > | become full-width),
 # so a directory created from an Apple name still matches.
 #
-# Nothing is renamed without --apply. A dry run writes the plan to a file you
-# can read first; --apply reads that same plan. Every rename is logged so
-# --undo can put things back.
+# Nothing is renamed without --apply: the default is a dry run, which writes
+# the plan to a file you can read first; --apply reads that same plan. Every
+# rename is logged so --undo can put things back.
 #
 # Requests are sent one at a time, at least one second apart. Apple limits the
 # search endpoint per IP and answers 429 for a long time once tripped. On a
@@ -37,11 +37,13 @@ Usage: tag-library.sh [options] ROOT
   ROOT                 Library root: ROOT/<artist>/<album>/<tracks>
 
 Options:
-  --apply              Perform the renames in the plan (default: dry run)
+  --dry-run            Write the plan only, rename nothing (the default)
+  --apply              Perform the renames in the plan
   --plan FILE          Plan file (default: ./tag-library.plan.tsv)
   --undo FILE          Reverse the renames listed in a moves log, then exit
-  --tracks             Also rename track files to "01 Title.ext"
-                       ("1-01 Title.ext" on multi-disc albums)
+  --no-tracks          Leave track files alone. By default they are renamed
+                       to "01 Title.ext" ("1-01 Title.ext" on multi-disc
+                       albums), as the plugin's organizer does
   --storefronts LIST   Comma-separated storefronts in order (default: jp,us)
   --cache DIR          Response cache (default: ./tag-library.cache)
   --interval SECONDS   Minimum gap between requests (default: 1)
@@ -53,9 +55,10 @@ USAGE
 }
 
 APPLY=0
+DRY_RUN=0
 PLAN=./tag-library.plan.tsv
 UNDO=
-TRACKS=0
+TRACKS=1
 STOREFRONTS=jp,us
 CACHE=./tag-library.cache
 INTERVAL=1
@@ -64,10 +67,12 @@ ROOT=
 
 while [ $# -gt 0 ]; do
     case "$1" in
+        --dry-run) DRY_RUN=1 ;;
         --apply) APPLY=1 ;;
         --plan) PLAN=$2; shift ;;
         --undo) UNDO=$2; shift ;;
         --tracks) TRACKS=1 ;;
+        --no-tracks) TRACKS=0 ;;
         --storefronts) STOREFRONTS=$2; shift ;;
         --cache) CACHE=$2; shift ;;
         --interval) INTERVAL=$2; shift ;;
@@ -78,6 +83,9 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
+
+# --dry-run beats --apply when both are given: the safer reading wins.
+[ "$DRY_RUN" -eq 1 ] && APPLY=0
 
 for dep in curl jq; do
     command -v "$dep" >/dev/null || { echo "missing dependency: $dep" >&2; exit 2; }

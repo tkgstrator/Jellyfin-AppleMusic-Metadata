@@ -147,17 +147,19 @@ zip を Jellyfin のデータディレクトリの `plugins/Jellyfin.Plugin.Appl
 ### シェルからの整理（`scripts/tag-library.sh`）
 
 プラグインを更新せず、ライブラリが見えるターミナルから同じ `[amid-…]` 付けを行う
-スクリプト。ディレクトリ名の**完全一致**だけで判定する（アーティストは検索結果の名前、
-アルバムはそのアーティストのディスコグラフィの名前）。判定規則と名前の無害化は
-プラグインの整理機能と同じなので、あとから Jellyfin 側で整理タスクを回しても衝突しない。
+スクリプト。**アーティストディレクトリ・アルバムディレクトリ・曲ファイル**の 3 つを
+改名する。判定はディレクトリ名の**完全一致**だけ（アーティストは検索結果の名前、
+アルバムはそのアーティストのディスコグラフィの名前、曲はトラック番号）。判定規則と
+名前の無害化はプラグインの整理機能と同じなので、あとから Jellyfin 側で整理タスクを
+回しても衝突しない。
 
 ```bash
 # 必要なもの: bash 4+, curl, jq。ライブラリがマウントされている場所ならどこでも
-./scripts/tag-library.sh /music                 # dry run。計画を tag-library.plan.tsv に書く
-./scripts/tag-library.sh --tracks /music        # 曲ファイルも 01 曲名.ext に改名する計画
+./scripts/tag-library.sh --dry-run /music       # 計画を tag-library.plan.tsv に書くだけ（既定）
+./scripts/tag-library.sh --only 米津玄師 /music  # 1 アーティストだけ試す
+./scripts/tag-library.sh --no-tracks /music     # ディレクトリだけ。曲ファイルは触らない
 ./scripts/tag-library.sh --apply /music         # 計画を実行。改名は moves ログに残る
 ./scripts/tag-library.sh --undo tag-library.plan.moves.<日時>.log   # 元に戻す
-./scripts/tag-library.sh --only 米津玄師 /music  # 1 アーティストだけ試す
 ```
 
 - 検索はアーティスト 1 件につき 1 回、その先は ID 引きのみ。直列 1 秒間隔で送り、
