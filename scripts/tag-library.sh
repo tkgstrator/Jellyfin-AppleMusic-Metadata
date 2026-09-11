@@ -313,7 +313,16 @@ plan_tracks() {
             fi
             break
         done <<< "$tracks"
-        if [ -n "$new" ] && [ "$new" != "$base" ]; then plan_line file "$f" "$album_dir/$new"; fi
+        if [ -n "$new" ] && [ "$new" != "$base" ]; then
+            plan_line file "$f" "$album_dir/$new"
+            # Lyrics and other sidecars are matched by file name, so they have
+            # to travel with the track: "01 Title.lrc" beside "01 Title.flac".
+            for side in "$album_dir/${base%.*}".*; do
+                [ -f "$side" ] || continue
+                [ "$side" != "$f" ] || continue
+                plan_line file "$side" "$album_dir/${new%.*}.${side##*.}"
+            done
+        fi
     done
     return 0
 }
