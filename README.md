@@ -160,6 +160,14 @@ zip を Jellyfin のデータディレクトリの `plugins/Jellyfin.Plugin.Appl
 ./scripts/tag-library.sh --no-tracks /music     # ディレクトリだけ。曲ファイルは触らない
 ./scripts/tag-library.sh --apply /music         # 計画を実行。改名は moves ログに残る
 ./scripts/tag-library.sh --undo tag-library.plan.moves.<日時>.log   # 元に戻す
+./scripts/tag-library.sh --quiet /music         # 進捗行と要約だけ
+```
+
+進捗は常に出る。端末なら 1 行を書き換える形、ファイルにリダイレクトしていれば
+アーティスト 1 件につき 1 行。
+
+```
+[########            ]  33%  198/597 artists  842 album(s)  1204 rename(s)  0:21:40 elapsed  ETA 0:43:12  米津玄師
 ```
 
 - 検索はアーティスト 1 件につき 1 回、その先は ID 引きのみ。直列 1 秒間隔で送り、
