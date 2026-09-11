@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.AppleMusic.Catalog;
@@ -100,6 +101,24 @@ public class ArtistCoverageTests
         Assert.Equal(1, report.RateLimited);
         Assert.Equal(["A", "B"], catalog.Searches);
         Assert.Equal(100, report.ExactPercent); // the unanswered name is not a miss
+    }
+
+    [Fact]
+    public async Task RunAsync_RecordsOtherFailuresAndCarriesOn()
+    {
+        var catalog = new FakeCatalog(name => name == "B" ? throw new HttpRequestException("500 (Server Error)") : Artists((name, name)));
+        var probe = Build(catalog);
+
+        var report = await probe.RunAsync(["A", "B", "C"], null, null, 0, CancellationToken.None);
+
+        Assert.True(report.Completed);
+        Assert.Equal(3, report.Checked);
+        Assert.Equal(2, report.Exact);
+        Assert.Equal(1, report.Errors);
+        Assert.Equal(["A", "B", "C"], catalog.Searches);
+        Assert.Equal(ArtistMatchOutcome.Error, report.Entries[1].Outcome);
+        Assert.Equal("500 (Server Error)", report.Entries[1].Error);
+        Assert.Equal(100, report.ExactPercent); // a failed request is not a miss
     }
 
     [Fact]

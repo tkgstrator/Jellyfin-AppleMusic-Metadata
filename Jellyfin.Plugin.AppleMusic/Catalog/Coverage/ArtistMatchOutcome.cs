@@ -30,4 +30,11 @@ public enum ArtistMatchOutcome
     /// The catalog refused to answer because of rate limiting.
     /// </summary>
     RateLimited,
+
+    /// <summary>
+    /// The request failed for another reason — Apple answered 5xx, or the
+    /// connection dropped. The run carries on; the name is checked again
+    /// next time because nothing was cached.
+    /// </summary>
+    Error,
 }
