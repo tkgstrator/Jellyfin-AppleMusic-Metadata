@@ -282,6 +282,19 @@ public class AppleMusicCatalogTests
     }
 
     [Fact]
+    public async Task SearchArtistsAsync_WithLimit_UsesTheLimitAndPropagatesRateLimiting()
+    {
+        var transport = new FakeTransport(_ => throw new CatalogRateLimitedException());
+        var catalog = Build(transport);
+
+        await Assert.ThrowsAsync<CatalogRateLimitedException>(() => catalog.SearchArtistsAsync("YOASOBI", 5, CancellationToken.None));
+
+        var request = Assert.Single(transport.Requests);
+        Assert.Contains("types=artists", request, StringComparison.Ordinal);
+        Assert.Contains("limit=5", request, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task GetSongAsync_ReturnsNullWhenRateLimited()
     {
         var transport = new FakeTransport(_ => throw new CatalogRateLimitedException());

@@ -2,7 +2,11 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.AppleMusic.Catalog.Caching;
+using Jellyfin.Plugin.AppleMusic.Catalog.Coverage;
+using Jellyfin.Plugin.AppleMusic.Coverage;
 using Jellyfin.Plugin.AppleMusic.Organizer;
+using Jellyfin.Plugin.AppleMusic.Tasks;
+using MediaBrowser.Model.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -11,7 +15,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.AppleMusic.Api;
 
 /// <summary>
-/// Cache and organizer controls for the plugin's configuration page.
+/// Cache, organizer and coverage controls for the plugin's configuration page.
 /// </summary>
 [ApiController]
 [Route("AppleMusic")]
@@ -20,6 +24,8 @@ public class AppleMusicController : ControllerBase
 {
     private readonly ICatalogCache _cache;
     private readonly LibraryOrganizer _organizer;
+    private readonly ArtistCoverageRunner _coverage;
+    private readonly ITaskManager _taskManager;
     private readonly ILogger<AppleMusicController> _logger;
 
     /// <summary>
@@ -27,11 +33,20 @@ public class AppleMusicController : ControllerBase
     /// </summary>
     /// <param name="cache">Catalog cache.</param>
     /// <param name="organizer">Library organizer.</param>
+    /// <param name="coverage">Artist coverage runner.</param>
+    /// <param name="taskManager">Scheduled task manager.</param>
     /// <param name="logger">Logger.</param>
-    public AppleMusicController(ICatalogCache cache, LibraryOrganizer organizer, ILogger<AppleMusicController> logger)
+    public AppleMusicController(
+        ICatalogCache cache,
+        LibraryOrganizer organizer,
+        ArtistCoverageRunner coverage,
+        ITaskManager taskManager,
+        ILogger<AppleMusicController> logger)
     {
         _cache = cache;
         _organizer = organizer;
+        _coverage = coverage;
+        _taskManager = taskManager;
         _logger = logger;
     }
 
@@ -93,6 +108,44 @@ public class AppleMusicController : ControllerBase
         {
             return Conflict(ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Returns the latest artist coverage report.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The report; partial while a run is in progress.</response>
+    /// <response code="404">No run has happened yet.</response>
+    /// <returns>The report.</returns>
+    [HttpGet("Artists/Coverage")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ArtistCoverageReport>> GetArtistCoverage(CancellationToken cancellationToken)
+    {
+        var report = await _coverage.LoadReportAsync(cancellationToken);
+        return report is null ? NotFound() : report;
+    }
+
+    /// <summary>
+    /// Starts the artist coverage task in the background. Read the result
+    /// with <see cref="GetArtistCoverage"/>.
+    /// </summary>
+    /// <response code="202">The task was queued.</response>
+    /// <response code="409">A run is already in progress.</response>
+    /// <returns>Accepted.</returns>
+    [HttpPost("Artists/Coverage/Run")]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public ActionResult RunArtistCoverage()
+    {
+        if (_coverage.IsRunning)
+        {
+            return Conflict("An artist coverage run is already in progress.");
+        }
+
+        _logger.LogInformation("Starting the artist coverage task on request");
+        _taskManager.Execute<ArtistCoverageTask>();
+        return Accepted();
     }
 
     /// <summary>
