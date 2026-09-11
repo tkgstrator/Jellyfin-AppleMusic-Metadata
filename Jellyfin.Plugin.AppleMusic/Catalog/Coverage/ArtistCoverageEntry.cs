@@ -22,6 +22,11 @@ public class ArtistCoverageEntry
     public string? Candidate { get; init; }
 
     /// <summary>
+    /// Gets what went wrong when <see cref="Outcome"/> is <see cref="ArtistMatchOutcome.Error"/>.
+    /// </summary>
+    public string? Error { get; init; }
+
+    /// <summary>
     /// Gets the catalog identifier of <see cref="Candidate"/>.
     /// </summary>
     public string? CandidateId { get; init; }

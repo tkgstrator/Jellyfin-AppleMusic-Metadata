@@ -69,6 +69,11 @@ public class ArtistCoverageReport
     public int RateLimited => Count(ArtistMatchOutcome.RateLimited);
 
     /// <summary>
+    /// Gets how many names went unanswered because the request failed.
+    /// </summary>
+    public int Errors => Count(ArtistMatchOutcome.Error);
+
+    /// <summary>
     /// Gets the share of checked names that matched exactly, in percent.
     /// </summary>
     public double ExactPercent => Percent(Exact);
@@ -83,7 +88,7 @@ public class ArtistCoverageReport
 
     private double Percent(int count)
     {
-        var answered = Checked - RateLimited;
+        var answered = Checked - RateLimited - Errors;
         return answered == 0 ? 0 : Math.Round(100.0 * count / answered, 1);
     }
 }

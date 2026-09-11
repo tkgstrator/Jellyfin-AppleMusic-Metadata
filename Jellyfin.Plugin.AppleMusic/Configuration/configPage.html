@@ -362,8 +362,9 @@
                     var tag = outcomeIs(entry, 'Relaxed', 1) ? '[case] '
                         : outcomeIs(entry, 'Unmatched', 2) ? '[miss] '
                         : outcomeIs(entry, 'NotFound', 3) ? '[none] '
-                        : '[429]  ';
-                    lines.push(tag + entry.Name + (entry.Candidate ? '  ->  ' + entry.Candidate : ''));
+                        : outcomeIs(entry, 'RateLimited', 4) ? '[429]  '
+                        : '[err]  ';
+                    lines.push(tag + entry.Name + (entry.Candidate ? '  ->  ' + entry.Candidate : '') + (entry.Error ? '  (' + entry.Error + ')' : ''));
                 });
                 document.querySelector('#CoverageSummary').textContent =
                     (report.Completed ? 'Checked ' : 'In progress or stopped early: checked ') +
@@ -372,6 +373,7 @@
                     report.Relaxed + ' differ only in case or spacing (' + report.RelaxedPercent + '% together), ' +
                     report.Unmatched + ' unmatched, ' + report.NotFound + ' not found' +
                     (report.RateLimited ? ', ' + report.RateLimited + ' unanswered' : '') +
+                    (report.Errors ? ', ' + report.Errors + ' failed' : '') +
                     '. Last updated ' + new Date(report.UpdatedAt).toLocaleString() + '.';
                 document.querySelector('#CoverageDetails').textContent =
                     lines.length ? lines.join('\n') : 'Every checked name matched exactly.';

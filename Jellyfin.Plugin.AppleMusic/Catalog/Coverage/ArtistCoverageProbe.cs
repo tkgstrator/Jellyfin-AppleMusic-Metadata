@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -23,7 +24,10 @@ namespace Jellyfin.Plugin.AppleMusic.Catalog.Coverage;
 /// The first refusal ends the run. The transport has already paused and
 /// retried by then, so the catalog is clearly not answering searches for a
 /// while, and every further name would fail fast and be recorded as
-/// unanswered — noise, at the cost of more knocking.
+/// unanswered — noise, at the cost of more knocking. Other failures — a 5xx
+/// from Apple, a dropped connection — are recorded against the name and the
+/// run carries on: those are per-request, and a single one must not throw
+/// away half an hour of answers.
 /// </para>
 /// </remarks>
 public class ArtistCoverageProbe
@@ -95,6 +99,11 @@ public class ArtistCoverageProbe
                     names.Count);
                 completed = false;
                 break;
+            }
+            catch (HttpRequestException ex)
+            {
+                entries.Add(new ArtistCoverageEntry { Name = name, Outcome = ArtistMatchOutcome.Error, Error = ex.Message });
+                _logger.LogWarning(ex, "The artist search for {Name} failed; carrying on with the next name", name);
             }
 
             if (checkpoint is not null && checkpointEvery > 0 && entries.Count % checkpointEvery == 0 && entries.Count < names.Count)
