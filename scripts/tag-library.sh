@@ -48,6 +48,7 @@ Options:
   --cache DIR          Response cache (default: ./tag-library.cache)
   --interval SECONDS   Minimum gap between requests (default: 1)
   --only NAME          Only process the artist directory called NAME
+  --quiet              Only print the progress line and the summary
   -h, --help           This text
 
 The plan is a TSV of  kind <TAB> from <TAB> to  — read it before --apply.
@@ -63,6 +64,7 @@ STOREFRONTS=jp,us
 CACHE=./tag-library.cache
 INTERVAL=1
 ONLY=
+QUIET=0
 ROOT=
 
 while [ $# -gt 0 ]; do
@@ -77,6 +79,7 @@ while [ $# -gt 0 ]; do
         --cache) CACHE=$2; shift ;;
         --interval) INTERVAL=$2; shift ;;
         --only) ONLY=$2; shift ;;
+        --quiet) QUIET=1 ;;
         -h|--help) usage; exit 0 ;;
         -*) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
         *) ROOT=$1 ;;
@@ -93,6 +96,64 @@ done
 [ "${BASH_VERSINFO[0]}" -ge 4 ] || { echo "bash 4 or newer is required" >&2; exit 2; }
 
 log() { printf '%s\n' "$*" >&2; }
+
+# Detail lines are suppressed by --quiet; the progress line and the summary
+# always show.
+detail() { [ "$QUIET" -eq 1 ] || printf '%s\n' "$*" >&2; }
+
+# ------------------------------------------------------------- progress -----
+
+PROGRESS_TOTAL=0
+PROGRESS_DONE=0
+PROGRESS_START=0
+PROGRESS_LIVE=0
+PROGRESS_LABEL=
+PROGRESS_UNIT=artists
+
+# A single line, rewritten in place, when stderr is a terminal. Redirected to
+# a file it would be thousands of identical lines, so there it is printed once
+# per artist as an ordinary line instead.
+[ -t 2 ] && PROGRESS_LIVE=1
+
+elapsed_hms() {
+    local s=$1
+    printf '%d:%02d:%02d' $(( s / 3600 )) $(( s % 3600 / 60 )) $(( s % 60 ))
+}
+
+# progress [live-only] — with the argument the line is only redrawn on a
+# terminal, so a redirected run gets one line per finished artist instead of
+# two (one when it starts, one when it ends).
+progress() {
+    [ "$PROGRESS_TOTAL" -gt 0 ] || return 0
+    [ "${1:-}" = live-only ] && [ "$PROGRESS_LIVE" -eq 0 ] && return 0
+    local now elapsed eta pct bar filled width=24
+    now=$(date +%s)
+    elapsed=$(( now - PROGRESS_START ))
+    pct=$(( 100 * PROGRESS_DONE / PROGRESS_TOTAL ))
+    if [ "$PROGRESS_DONE" -gt 0 ]; then
+        eta=$(( elapsed * (PROGRESS_TOTAL - PROGRESS_DONE) / PROGRESS_DONE ))
+        eta=$(elapsed_hms "$eta")
+    else
+        eta="--:--:--"
+    fi
+    filled=$(( width * PROGRESS_DONE / PROGRESS_TOTAL ))
+    bar=$(printf '%*s' "$filled" '' | tr ' ' '#')$(printf '%*s' $(( width - filled )) '')
+    if [ "$PROGRESS_LIVE" -eq 1 ]; then
+        printf '\r\033[K[%s] %3d%%  %d/%d %s  %d album(s)  %d rename(s)  %s elapsed  ETA %s  %s' \
+            "$bar" "$pct" "$PROGRESS_DONE" "$PROGRESS_TOTAL" "$PROGRESS_UNIT" "$albums_matched" "$PLAN_LINES" \
+            "$(elapsed_hms "$elapsed")" "$eta" "${PROGRESS_LABEL:0:28}" >&2
+    else
+        printf '[%3d%%] %d/%d %s, %d album(s), %d rename(s), %s elapsed, ETA %s — %s\n' \
+            "$pct" "$PROGRESS_DONE" "$PROGRESS_TOTAL" "$PROGRESS_UNIT" "$albums_matched" "$PLAN_LINES" \
+            "$(elapsed_hms "$elapsed")" "$eta" "$PROGRESS_LABEL" >&2
+    fi
+}
+
+# Clears the live progress line so a detail line does not land on top of it.
+progress_clear() {
+    [ "$PROGRESS_LIVE" -eq 1 ] && [ "$PROGRESS_TOTAL" -gt 0 ] && printf '\r\033[K' >&2
+    return 0
+}
 
 # ---------------------------------------------------------------- undo ------
 
@@ -278,7 +339,12 @@ album_tracks() {
 
 # ----------------------------------------------------------------- plan -----
 
-plan_line() { printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$PLAN"; }
+PLAN_LINES=0
+
+plan_line() {
+    printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$PLAN"
+    PLAN_LINES=$(( PLAN_LINES + 1 ))
+}
 
 plan_tracks() {
     local album_dir=$1 album_id=$2 sf=$3 tracks multi disc track title f base ext fdisc ftrack new rc
@@ -330,11 +396,24 @@ plan_tracks() {
 : > "$PLAN"
 artists_total=0; artists_matched=0; artists_skipped=0; albums_total=0; albums_matched=0
 
+# Counted up front so the progress line has a denominator and an ETA.
+artist_dirs=()
 for artist_dir in "$ROOT"/*/; do
     artist_dir=${artist_dir%/}
     artist=${artist_dir##*/}
     if [ -n "$ONLY" ] && [ "$artist" != "$ONLY" ]; then continue; fi
+    artist_dirs+=("$artist_dir")
+done
+PROGRESS_TOTAL=${#artist_dirs[@]}
+PROGRESS_START=$(date +%s)
+log "$PROGRESS_TOTAL artist director$([ "$PROGRESS_TOTAL" -eq 1 ] && echo y || echo ies) under $ROOT"
+progress
+
+for artist_dir in "${artist_dirs[@]}"; do
+    artist=${artist_dir##*/}
     artists_total=$((artists_total + 1))
+    PROGRESS_LABEL=$artist
+    progress live-only
 
     artist_id=$(tag_of "$artist"); sf=
     if [ -n "$artist_id" ]; then
@@ -345,8 +424,9 @@ for artist_dir in "$ROOT"/*/; do
         done
         [ "$RATE_LIMITED" -eq 1 ] && break
         if [ -z "$sf" ]; then
-            log "[skip] tagged artist $artist_id not found in any storefront: $artist"
-            artists_skipped=$((artists_skipped + 1)); continue
+            progress_clear; detail "[skip] tagged artist $artist_id not found in any storefront: $artist"
+            artists_skipped=$((artists_skipped + 1))
+            PROGRESS_DONE=$((PROGRESS_DONE + 1)); progress; continue
         fi
         new_artist_dir=$artist_dir
     else
@@ -354,18 +434,20 @@ for artist_dir in "$ROOT"/*/; do
         hit=$(find_artist "$artist") || rc=$?
         [ "$RATE_LIMITED" -eq 1 ] && break
         if [ "$rc" -ne 0 ]; then
-            log "[skip] no exact artist match: $artist"
-            artists_skipped=$((artists_skipped + 1)); continue
+            progress_clear; detail "[skip] no exact artist match: $artist"
+            artists_skipped=$((artists_skipped + 1))
+            PROGRESS_DONE=$((PROGRESS_DONE + 1)); progress; continue
         fi
         artist_id=${hit%%$'\t'*}; sf=${hit#*$'\t'}
         new_artist_dir="$ROOT/$(sanitize "$artist")-[amid-$artist_id]"
         if [ -e "$new_artist_dir" ]; then
-            log "[skip] target exists: $new_artist_dir"
-            artists_skipped=$((artists_skipped + 1)); continue
+            progress_clear; detail "[skip] target exists: $new_artist_dir"
+            artists_skipped=$((artists_skipped + 1))
+            PROGRESS_DONE=$((PROGRESS_DONE + 1)); progress; continue
         fi
     fi
     artists_matched=$((artists_matched + 1))
-    log "[artist] $artist -> $artist_id ($sf)"
+    progress_clear; detail "[artist] $artist -> $artist_id ($sf)"
 
     albums=$(artist_albums "$artist_id" "$sf") || albums=
     [ "$RATE_LIMITED" -eq 1 ] && break
@@ -383,11 +465,11 @@ for artist_dir in "$ROOT"/*/; do
         album_id=$(tag_of "$album"); new_album_dir=$album_dir
         if [ -z "$album_id" ]; then
             album_id=${album_ids["$album"]:-}
-            if [ -z "$album_id" ]; then log "  [skip] no exact album match: $album"; continue; fi
+            if [ -z "$album_id" ]; then progress_clear; detail "  [skip] no exact album match: $album"; continue; fi
             new_album_dir="$artist_dir/$(sanitize "$album")-[amid-$album_id]"
         fi
         albums_matched=$((albums_matched + 1))
-        log "  [album] $album -> $album_id"
+        progress_clear; detail "  [album] $album -> $album_id"
         # Tracks first: their paths are relative to the album directory as it
         # is now, and the plan is applied top to bottom.
         if [ "$TRACKS" -eq 1 ]; then
@@ -400,8 +482,11 @@ for artist_dir in "$ROOT"/*/; do
 
     # Artist last, so the album paths above are still valid when applying in order.
     if [ "$new_artist_dir" != "$artist_dir" ]; then plan_line dir "$artist_dir" "$new_artist_dir"; fi
+    PROGRESS_DONE=$((PROGRESS_DONE + 1))
+    progress
 done
 
+progress_clear
 log ""
 log "artists: $artists_matched of $artists_total matched ($artists_skipped skipped); albums: $albums_matched of $albums_total matched"
 log "plan: $PLAN ($(wc -l < "$PLAN") rename(s))"
@@ -412,18 +497,23 @@ log "plan: $PLAN ($(wc -l < "$PLAN") rename(s))"
 if [ "$APPLY" -eq 1 ]; then
     MOVES="${PLAN%.tsv}.moves.$(date +%Y%m%d-%H%M%S).log"
     applied=0; failed=0
+    PROGRESS_TOTAL=$(wc -l < "$PLAN"); PROGRESS_DONE=0; PROGRESS_START=$(date +%s)
+    PROGRESS_UNIT=renames; PROGRESS_LABEL=
     # File renames come before their album directory, album directories
     # before their artist directory — the plan was written in that order.
     while IFS=$'\t' read -r kind from to; do
         [ -n "$kind" ] || continue
-        if [ ! -e "$from" ]; then log "[missing] $from"; failed=$((failed + 1)); continue; fi
-        if [ -e "$to" ]; then log "[exists]  $to"; failed=$((failed + 1)); continue; fi
+        PROGRESS_DONE=$((PROGRESS_DONE + 1)); PROGRESS_LABEL=${from##*/}; progress live-only
+        if [ ! -e "$from" ]; then progress_clear; log "[missing] $from"; failed=$((failed + 1)); continue; fi
+        if [ -e "$to" ]; then progress_clear; log "[exists]  $to"; failed=$((failed + 1)); continue; fi
         if mv -n -- "$from" "$to"; then
             printf '%s\t%s\n' "$from" "$to" >> "$MOVES"; applied=$((applied + 1))
         else
-            log "[failed]  $from"; failed=$((failed + 1))
+            progress_clear; log "[failed]  $from"; failed=$((failed + 1))
         fi
     done < "$PLAN"
+    progress_clear
+    PROGRESS_LIVE=0; progress
     log "applied $applied rename(s), $failed skipped; moves logged to $MOVES (undo with --undo $MOVES)"
     log "now run a library scan in Jellyfin: the moved directories are picked up by id, without searching"
 else
