@@ -148,22 +148,49 @@ zip を Jellyfin のデータディレクトリの `plugins/Jellyfin.Plugin.Appl
 
 ### シェルからの整理（`scripts/tag-library.sh`）
 
-プラグインを更新せず、ライブラリが見えるターミナルから同じ `[amid-…]` 付けを行う
-スクリプト。**アーティストディレクトリ・アルバムディレクトリ・曲ファイル**の 3 つを
-改名する。判定はディレクトリ名の**完全一致**だけ（アーティストは検索結果の名前、
-アルバムはそのアーティストのディスコグラフィの名前、曲はトラック番号）。判定規則と
-名前の無害化はプラグインの整理機能と同じなので、あとから Jellyfin 側で整理タスクを
-回しても衝突しない。
+プラグインを更新せず、ライブラリが見えるターミナルから Apple Music の ID を
+ライブラリに焼き付けるスクリプト。**`--nfo` を推奨**する。
+
+判定はディレクトリ名の**完全一致**だけ（アーティストは検索結果の名前、アルバムは
+そのアーティストのディスコグラフィの名前）。
 
 ```bash
 # 必要なもの: bash 4+, curl, jq。ライブラリがマウントされている場所ならどこでも
-./scripts/tag-library.sh --dry-run /music       # 計画を tag-library.plan.tsv に書くだけ（既定）
-./scripts/tag-library.sh --only 米津玄師 /music  # 1 アーティストだけ試す
-./scripts/tag-library.sh --no-tracks /music     # ディレクトリだけ。曲ファイルは触らない
-./scripts/tag-library.sh --apply /music         # 計画を実行。改名は moves ログに残る
+./scripts/tag-library.sh --nfo --dry-run /music         # 計画を書くだけ（既定は dry run）
+./scripts/tag-library.sh --nfo --only 米津玄師 /music    # 1 アーティストだけ試す
+./scripts/tag-library.sh --nfo --apply /music           # 実行
 ./scripts/tag-library.sh --undo tag-library.plan.moves.<日時>.log   # 元に戻す
-./scripts/tag-library.sh --quiet /music         # 進捗行と要約だけ
+./scripts/tag-library.sh --nfo --quiet /music           # 進捗行と要約だけ
 ```
+
+#### `--nfo`（推奨）
+
+Jellyfin が音楽の隣に置いている `album.nfo` / `artist.nfo` に ID を書き足す。
+
+```xml
+<applemusicalbumid>1749425943</applemusicalbumid>
+<applemusicstorefrontid>jp</applemusicstorefrontid>
+```
+
+この 2 要素は Jellyfin が元から読み書きする形式で、プラグインが `IExternalId` を
+登録しているため自動的に往復する。**ファイルを 1 つも動かさない**ので、再生回数・
+お気に入り・プレイリストが残るのが改名方式との決定的な差。実行後はライブラリの
+**メタデータを更新**すれば ID が読み戻される。
+
+- ライブラリ設定の「アートワークとメタデータをメディアフォルダーに保存」が ON で
+  あること（OFF だと Jellyfin が nfo を読まない）
+- 既存の nfo は 2 要素だけ差し替える。他のフィールドには触らない
+- nfo が無いディレクトリには `title` と ID だけの最小の nfo を作る。Jellyfin の
+  パーサは書いてある要素しか読まないので、他の情報が消えることはない
+- `--apply` の前に元の nfo を控えるので `--undo` で完全に戻せる
+
+#### 既定（ディレクトリ改名）
+
+**アーティストディレクトリ・アルバムディレクトリ・曲ファイル**を
+`名前-[amid-id]` / `01 曲名.ext` に改名する。名前の無害化とトラック対応付けは
+プラグインの整理機能と同じ規則。Jellyfin が一度も照合していないライブラリや、
+nfo の保存を切っている場合でも効くが、**パスが変わるので再生回数は消える**。
+`--no-tracks` で曲ファイルを除外できる。
 
 進捗は常に出る。端末なら 1 行を書き換える形、ファイルにリダイレクトしていれば
 アーティスト 1 件につき 1 行。
