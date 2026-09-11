@@ -528,9 +528,21 @@ for artist_dir in "${artist_dirs[@]}"; do
         fi
     fi
     artists_matched=$((artists_matched + 1))
-    progress_clear; detail "[artist] $artist -> $artist_id ($sf)"
+
+    # The artist's albums are buffered so the header can carry their counts;
+    # a bare stream of per-album lines is what made the old log unreadable.
+    artist_lines=()
+    artist_albums_seen=0
+    artist_albums_hit=0
+    artist_changes_before=$PLAN_LINES
+    artist_note=
+
     if [ "$NFO" -eq 1 ]; then
-        plan_nfo "$artist_dir/artist.nfo" artist "$artist_id" "$sf" || true
+        if plan_nfo "$artist_dir/artist.nfo" artist "$artist_id" "$sf"; then
+            artist_note="artist.nfo"
+        else
+            artist_note="artist.nfo already set"
+        fi
     fi
 
     albums=$(artist_albums "$artist_id" "$sf") || albums=
@@ -546,17 +558,25 @@ for artist_dir in "${artist_dirs[@]}"; do
         album_dir=${album_dir%/}
         album=${album_dir##*/}
         albums_total=$((albums_total + 1))
+        artist_albums_seen=$((artist_albums_seen + 1))
         album_id=$(tag_of "$album"); new_album_dir=$album_dir
         if [ -z "$album_id" ]; then
             album_id=${album_ids["$album"]:-}
-            if [ -z "$album_id" ]; then progress_clear; detail "  [skip] no exact album match: $album"; continue; fi
+            if [ -z "$album_id" ]; then
+                artist_lines+=("    [skip] $album  (no exact match on Apple Music)")
+                continue
+            fi
             [ "$NFO" -eq 1 ] || new_album_dir="$artist_dir/$(sanitize "$album")-[amid-$album_id]"
         fi
         albums_matched=$((albums_matched + 1))
-        progress_clear; detail "  [album] $album -> $album_id"
+        artist_albums_hit=$((artist_albums_hit + 1))
 
         if [ "$NFO" -eq 1 ]; then
-            plan_nfo "$album_dir/album.nfo" album "$album_id" "$sf" || true
+            if plan_nfo "$album_dir/album.nfo" album "$album_id" "$sf"; then
+                artist_lines+=("    $album"$'\n'"      -> applemusicalbumid=$album_id ($sf)")
+            else
+                artist_lines+=("    $album  (already set)")
+            fi
             continue
         fi
 
@@ -566,12 +586,25 @@ for artist_dir in "${artist_dirs[@]}"; do
             plan_tracks "$album_dir" "$album_id" "$sf" || true
             [ "$RATE_LIMITED" -eq 1 ] && break 2
         fi
-        if [ "$new_album_dir" != "$album_dir" ]; then plan_line dir "$album_dir" "$new_album_dir"; fi
+        if [ "$new_album_dir" != "$album_dir" ]; then
+            plan_line dir "$album_dir" "$new_album_dir"
+            artist_lines+=("    $album"$'\n'"      -> ${new_album_dir##*/}")
+        else
+            artist_lines+=("    $album  (already in place)")
+        fi
     done
     unset album_ids
 
     # Artist last, so the album paths above are still valid when applying in order.
-    if [ "$new_artist_dir" != "$artist_dir" ]; then plan_line dir "$artist_dir" "$new_artist_dir"; fi
+    if [ "$new_artist_dir" != "$artist_dir" ]; then
+        plan_line dir "$artist_dir" "$new_artist_dir"
+        artist_note="${new_artist_dir##*/}"
+    fi
+
+    progress_clear
+    detail "$artist  [amid-$artist_id] ($sf)  —  $artist_albums_seen album(s), $artist_albums_hit matched, $((PLAN_LINES - artist_changes_before)) $CHANGE_NOUN(s)${artist_note:+  [$artist_note]}"
+    for line in "${artist_lines[@]}"; do detail "$line"; done
+    [ ${#artist_lines[@]} -gt 0 ] && detail ""
     PROGRESS_DONE=$((PROGRESS_DONE + 1))
     progress
 done
