@@ -23,6 +23,11 @@ public class AppleMusicCatalog : IAppleMusicCatalog
     // Albums rarely exceed one page of tracks; this only bounds a runaway "next" chain.
     private const int MaxTrackPages = 20;
 
+    // Artists carry no editorialNotes, and their biography, birth date and
+    // country are omitted unless asked for by name. Albums need no extend:
+    // their editorialNotes come back by default.
+    private const string ArtistExtend = "&extend=artistBio,bornOrFormed,origin";
+
     private readonly ICatalogTransport _transport;
     private readonly Func<CatalogOptions> _options;
     private readonly ILogger<AppleMusicCatalog> _logger;
@@ -247,11 +252,12 @@ public class AppleMusicCatalog : IAppleMusicCatalog
 
                 var url = string.Format(
                     CultureInfo.InvariantCulture,
-                    "/v1/catalog/{0}/{1}/{2}?l={3}",
+                    "/v1/catalog/{0}/{1}/{2}?l={3}{4}",
                     Uri.EscapeDataString(current),
                     type,
                     Uri.EscapeDataString(id),
-                    Uri.EscapeDataString(options.GetLanguageFor(current)));
+                    Uri.EscapeDataString(options.GetLanguageFor(current)),
+                    type == ArtistsType ? ArtistExtend : string.Empty);
 
                 var response = await FetchAsync<ResourceList<TAttributes>>(url, cancellationToken);
                 var resource = response?.Data.FirstOrDefault(r => r.Attributes is not null && !string.IsNullOrEmpty(r.Id));
