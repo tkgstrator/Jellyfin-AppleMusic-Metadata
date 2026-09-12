@@ -72,8 +72,11 @@ Jellyfin.Plugin.AppleMusic/Providers/    Album/Artist/Song のメタデータ、
                                          Album/Artist の画像
 Jellyfin.Plugin.AppleMusic/Organizer/    [amid-id] タグ、名前の正規化、移動計画（純粋）と
                                          実行（Jellyfin 依存）
-Jellyfin.Plugin.AppleMusic/Tasks/        キャッシュ掃除の週次タスク、ライブラリ整理タスク
-Jellyfin.Plugin.AppleMusic/Api/          設定画面から叩くキャッシュ操作・整理 API
+Jellyfin.Plugin.AppleMusic/Coverage/     アーティスト名カバレッジ計測の実行（Jellyfin 依存）。
+                                         判定・レポート・保存は Catalog/Coverage/（純粋）
+Jellyfin.Plugin.AppleMusic/Tasks/        キャッシュ掃除の週次タスク、ライブラリ整理タスク、
+                                         アーティストカバレッジ計測タスク
+Jellyfin.Plugin.AppleMusic/Api/          設定画面から叩くキャッシュ操作・整理・カバレッジ API
 PluginServiceRegistrator.cs              カタログ層の DI 登録
 ```
 
@@ -97,6 +100,16 @@ PluginServiceRegistrator.cs              カタログ層の DI 登録
 スキャンに任せる（再生回数は消える。利用者と合意済み）。`IScheduledTask.Key` は
 `AppleMusicOrganize`、既定トリガーなし。
 
+**アーティストカバレッジ計測は検索を 1 名 1 回・直列で送り、429 で打ち切る。**
+`ArtistCoverageProbe` は `SearchArtistsAsync(term, limit, ct)` を使う。この
+オーバーロードだけは `CatalogRateLimitedException` を握りつぶさず伝播する。
+プロバイダ向けの検索が空を返すのは「未回答を『無い』と誤認しても次回の更新で直る」
+からだが、一括計測では未回答と不在を区別しないと数字が嘘になる。`limit=5` にして
+あるのは応答を 8 KB 以下に収めてディスクキャッシュに載せ、打ち切り後の再実行を
+続きから始めるため。レポートは `DataPath/apple-music/artist-coverage.json`
+（キャッシュ削除で消えないよう cache ではなく data）。`IScheduledTask.Key` は
+`AppleMusicArtistCoverage`、既定トリガーなし。
+
 **期限切れエントリは自分では消えない。** 読み出し時に無視されるだけなので、
 `CacheMaintenanceTask`（週次）と設定画面のボタンが `PruneAsync` を呼ぶ。
 `IScheduledTask.Key` は Jellyfin がユーザーのスケジュール設定を紐付ける識別子なので、
@@ -105,6 +118,19 @@ PluginServiceRegistrator.cs              カタログ層の DI 登録
 **`Catalog/` は `MediaBrowser.*` を参照しない。** サーバー上でステップ実行できない
 事情があるため、ロジックはここに寄せてユニットテストで検証する。`Providers/` は
 「カタログの戻り値を Jellyfin の型に詰め替えるだけ」の薄い層にとどめる。
+
+**アーティストの ID 引きだけ `extend` が要る。** アルバムは `editorialNotes` が
+既定で返るが、**アーティストには `editorialNotes` が存在しない**（実測: `extend` を
+付けても返らない）。代わりに `extend=artistBio,bornOrFormed,origin` で経歴・生年・
+出身国が返る。`AppleMusicCatalog.ArtistExtend` がこれを付ける。`bornOrFormed` は
+`l` に追従して現地語で返る（`1991年3月10日` / `March 10, 1991`）ので、
+`ArtistMetadataProvider.ParseBornOrFormed` が和式・英式・年のみを順に試す。
+`artistBio` は `<br>` を含むため `ToPlainText` で改行に直す。
+
+**アートワークはテンプレートで返る。URL を解決するだけで、音声ファイルには
+埋め込まない。** `{w}x{h}{c}.{f}` の `{c}` は切り抜き指定で、`artwork` の
+`defaultCropCode` に従う（アーティストは `ac` のことがある）。ダウンロードと
+保存は Jellyfin の担当。
 
 **カタログ ID はストアフロント単位。** ID を保存するときは必ず
 `ProviderKeys.Storefront` も一緒に書く。jp で見つけた ID を us に問い合わせると

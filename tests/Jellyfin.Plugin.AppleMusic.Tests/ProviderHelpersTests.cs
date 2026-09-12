@@ -80,4 +80,37 @@ public class ProviderHelpersTests
 
         Assert.Equal("IRIS OUT", SongMetadataProvider.BuildSearchTerm(info));
     }
+
+    [Theory]
+    [InlineData("1991年3月10日", 1991, 3, 10)]
+    [InlineData("March 10, 1991", 1991, 3, 10)]
+    [InlineData("1991-03-10", 1991, 3, 10)]
+    [InlineData("1991年", 1991, 1, 1)]
+    [InlineData("Formed in 2013", 2013, 1, 1)]
+    public void ParseBornOrFormed_ReadsTheLocalisedForms(string value, int year, int month, int day)
+    {
+        var parsed = ArtistMetadataProvider.ParseBornOrFormed(value);
+
+        Assert.NotNull(parsed);
+        Assert.Equal(new DateTime(year, month, day, 0, 0, 0, DateTimeKind.Utc), parsed.Value.Date.ToUniversalTime());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("unknown")]
+    public void ParseBornOrFormed_ReturnsNullWhenThereIsNoDate(string? value)
+        => Assert.Null(ArtistMetadataProvider.ParseBornOrFormed(value));
+
+    [Fact]
+    public void ToPlainText_TurnsBreakTagsIntoNewlines()
+        => Assert.Equal("one\ntwo\nthree", ArtistMetadataProvider.ToPlainText("one<br>two<BR />three"));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("<br>")]
+    public void ToPlainText_ReturnsNullWhenNothingIsLeft(string? value)
+        => Assert.Null(ArtistMetadataProvider.ToPlainText(value));
 }

@@ -269,6 +269,9 @@ public class MetadataProviderTests
             return Task.FromResult(Artists);
         }
 
+        public Task<IReadOnlyList<CatalogItem<ArtistAttributes>>> SearchArtistsAsync(string term, int limit, CancellationToken cancellationToken)
+            => SearchArtistsAsync(term, cancellationToken);
+
         public Task<CatalogItem<SongAttributes>?> GetSongAsync(string id, string? storefront, CancellationToken cancellationToken)
             => Task.FromResult(Songs.FirstOrDefault(s => s.Id == id));
 

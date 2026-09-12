@@ -92,6 +92,12 @@ public class AlbumMetadataProvider : IRemoteMetadataProvider<MusicAlbum, AlbumIn
             item.AddGenre(genre);
         }
 
+        // Jellyfin shows the label as the album's studio; nothing else fills it.
+        if (!string.IsNullOrWhiteSpace(attributes.RecordLabel))
+        {
+            item.AddStudio(attributes.RecordLabel);
+        }
+
         item.SetProviderId(ProviderKeys.Album, album.Id);
         item.SetProviderId(ProviderKeys.Storefront, album.Storefront);
 

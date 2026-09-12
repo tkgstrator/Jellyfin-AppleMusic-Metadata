@@ -18,4 +18,26 @@ public sealed record AlbumPlan(
     IReadOnlyList<PlannedMove> Moves,
     IReadOnlyList<string> Skipped,
     string? VacatedDirectory,
-    string TargetArtistDirectory);
+    string TargetArtistDirectory)
+{
+    /// <summary>
+    /// Gets the album artist as Apple Music spells it. Empty when the album
+    /// could not be resolved.
+    /// </summary>
+    public string Artist { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets the Apple Music identifier of the album artist.
+    /// </summary>
+    public string ArtistId { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets the Apple Music identifier of the album.
+    /// </summary>
+    public string AlbumId { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets the album directory after the move, or empty when it stays put.
+    /// </summary>
+    public string TargetAlbumDirectory { get; init; } = string.Empty;
+}

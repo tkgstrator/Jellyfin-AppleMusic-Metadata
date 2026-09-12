@@ -201,6 +201,27 @@
                 </div>
 
                 <div style="margin-top:2em;">
+                    <h2>Artist coverage</h2>
+                    <div class="fieldDescription" style="margin-bottom:1em;">
+                        Searches Apple Music for every artist name in the library and reports how many are
+                        identified by the name alone. Each name costs one rate-limited search, so the run is
+                        strictly sequential and can take a while; it stops when Apple starts refusing and picks
+                        up from the cache when started again. The same run is available as the scheduled task
+                        <em>Check artist coverage on Apple Music</em>.
+                    </div>
+                    <button is="emby-button" type="button" id="CoverageRun" class="raised block emby-button">
+                        <span>Start a coverage run</span>
+                    </button>
+                    <button is="emby-button" type="button" id="CoverageShow" class="raised block emby-button">
+                        <span>Show the latest report</span>
+                    </button>
+                    <div id="CoverageResult" style="margin-top:1em; display:none;">
+                        <div id="CoverageSummary" class="fieldDescription"></div>
+                        <pre id="CoverageDetails" style="white-space:pre-wrap; font-size:0.85em; max-height:24em; overflow:auto;"></pre>
+                    </div>
+                </div>
+
+                <div style="margin-top:2em;">
                     <h2>Cache maintenance</h2>
                     <div class="fieldDescription" style="margin-bottom:1em;">
                         Expired entries are ignored on read but are only deleted by the
@@ -280,15 +301,30 @@
 
             function showOrganizeReport(report) {
                 var lines = [];
-                report.Moves.forEach(function (move) {
-                    lines.push(((move.Kind === 0 || move.Kind === 'Directory') ? '[dir]  ' : '[file] ') + move.From + '\n    -> ' + move.To);
+                // Artist by artist: the flat move list runs to thousands of
+                // paths on a real library and cannot be read.
+                (report.Artists || []).forEach(function (artist) {
+                    var name = artist.Artist || '(unresolved)';
+                    lines.push(name + (artist.ArtistId ? '  [amid-' + artist.ArtistId + ']' : '') +
+                        '  —  ' + artist.AlbumCount + ' album(s), ' + artist.MovedAlbums + ' moving, ' +
+                        artist.TrackRenames + ' track rename(s)' +
+                        (artist.SkippedCount ? ', ' + artist.SkippedCount + ' skipped' : ''));
+                    artist.Albums.forEach(function (album) {
+                        if (album.TargetName) {
+                            lines.push('    ' + album.Album + '\n      -> ' + album.TargetName +
+                                (album.TrackRenames ? '  (' + album.TrackRenames + ' track rename(s))' : ''));
+                        } else {
+                            lines.push('    ' + album.Album + '  (stays put)');
+                        }
+                        album.Skipped.forEach(function (reason) { lines.push('    [skip] ' + reason); });
+                    });
+                    lines.push('');
                 });
-                report.Skipped.forEach(function (reason) { lines.push('[skip] ' + reason); });
                 (report.Failed || []).forEach(function (reason) { lines.push('[FAIL] ' + reason); });
                 document.querySelector('#OrganizeSummary').textContent =
                     (report.DryRun ? 'Preview: ' : 'Applied ' + report.Applied + ' of ') +
-                    report.Moves.length + ' move(s) across ' + report.Albums + ' album(s), ' +
-                    report.Skipped.length + ' skipped' +
+                    report.Moves.length + ' move(s) across ' + report.Albums + ' album(s) by ' +
+                    report.ArtistCount + ' artist(s), ' + report.Skipped.length + ' skipped' +
                     (report.Failed && report.Failed.length ? ', ' + report.Failed.length + ' failed' : '') + '.';
                 document.querySelector('#OrganizeDetails').textContent =
                     lines.length ? lines.join('\n') : 'Nothing to do.';
@@ -326,6 +362,69 @@
                                 runOrganize('Apply');
                             }
                         });
+                });
+
+            function outcomeIs(entry, name, ordinal) {
+                return entry.Outcome === name || entry.Outcome === ordinal;
+            }
+
+            function showCoverageReport(report) {
+                var lines = [];
+                report.Entries.forEach(function (entry) {
+                    if (outcomeIs(entry, 'Exact', 0)) {
+                        return;
+                    }
+                    var tag = outcomeIs(entry, 'Relaxed', 1) ? '[case] '
+                        : outcomeIs(entry, 'Unmatched', 2) ? '[miss] '
+                        : outcomeIs(entry, 'NotFound', 3) ? '[none] '
+                        : outcomeIs(entry, 'RateLimited', 4) ? '[429]  '
+                        : '[err]  ';
+                    lines.push(tag + entry.Name + (entry.Candidate ? '  ->  ' + entry.Candidate : '') + (entry.Error ? '  (' + entry.Error + ')' : ''));
+                });
+                document.querySelector('#CoverageSummary').textContent =
+                    (report.Completed ? 'Checked ' : 'In progress or stopped early: checked ') +
+                    report.Checked + ' of ' + report.Total + ' artist name(s). ' +
+                    report.Exact + ' exact (' + report.ExactPercent + '%), ' +
+                    report.Relaxed + ' differ only in case or spacing (' + report.RelaxedPercent + '% together), ' +
+                    report.Unmatched + ' unmatched, ' + report.NotFound + ' not found' +
+                    (report.RateLimited ? ', ' + report.RateLimited + ' unanswered' : '') +
+                    (report.Errors ? ', ' + report.Errors + ' failed' : '') +
+                    '. Last updated ' + new Date(report.UpdatedAt).toLocaleString() + '.';
+                document.querySelector('#CoverageDetails').textContent =
+                    lines.length ? lines.join('\n') : 'Every checked name matched exactly.';
+                document.querySelector('#CoverageResult').style.display = 'block';
+            }
+
+            document.querySelector('#CoverageShow')
+                .addEventListener('click', function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.ajax({
+                        type: 'GET',
+                        url: ApiClient.getUrl('AppleMusic/Artists/Coverage'),
+                        dataType: 'json'
+                    }).then(function (report) {
+                        Dashboard.hideLoadingMsg();
+                        showCoverageReport(report);
+                    }, function (response) {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert(response && response.status === 404
+                            ? 'No coverage run has happened yet.'
+                            : 'Could not read the coverage report; see the server log.');
+                    });
+                });
+
+            document.querySelector('#CoverageRun')
+                .addEventListener('click', function () {
+                    ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('AppleMusic/Artists/Coverage/Run')
+                    }).then(function () {
+                        Dashboard.alert('The coverage run has started. Progress shows under Scheduled Tasks; use "Show the latest report" to read the result, also while it is running.');
+                    }, function (response) {
+                        Dashboard.alert(response && response.status === 409
+                            ? 'A coverage run is already in progress.'
+                            : 'Could not start the coverage run; see the server log.');
+                    });
                 });
 
             document.querySelector('#AppleMusicConfigForm')
