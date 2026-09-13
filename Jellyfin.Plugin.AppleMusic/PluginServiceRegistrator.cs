@@ -3,10 +3,13 @@ using System.IO;
 using System.Net.Http;
 using Jellyfin.Plugin.AppleMusic.Catalog;
 using Jellyfin.Plugin.AppleMusic.Catalog.Caching;
+using Jellyfin.Plugin.AppleMusic.Catalog.EmbeddedMetadata;
 using Jellyfin.Plugin.AppleMusic.Catalog.Throttling;
+using Jellyfin.Plugin.AppleMusic.Providers.EmbeddedMetadata;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -22,6 +25,10 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     /// <inheritdoc />
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
+        // A shared reader bounds probe concurrency across every audio provider invocation.
+        serviceCollection.AddSingleton<IEmbeddedMetadataReader>(provider =>
+            new FfprobeEmbeddedMetadataReader(provider.GetRequiredService<IMediaEncoder>()));
+
         // Singleton so the web player token is fetched once and shared, rather
         // than re-scraped per request.
         serviceCollection.AddSingleton<IWebPlayTokenProvider>(provider => new WebPlayTokenProvider(
