@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -121,6 +122,77 @@ public class AppleMusicCatalogTests
         Assert.Equal("IRIS OUT", song.Attributes.Name);
         Assert.Single(transport.Requests);
         Assert.Contains("/v1/catalog/us/songs/42", transport.Requests[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetAlbumAsync_CarriesRelationshipsAndFollowsPagedTracks()
+    {
+        var transport = new FakeTransport(url =>
+        {
+            if (url.Contains("/albums/1/tracks?offset=1", StringComparison.Ordinal))
+            {
+                return new TrackList { Data = [new Resource<SongAttributes> { Id = "t2", Attributes = new SongAttributes { Name = "Two", TrackNumber = 2 } }] };
+            }
+
+            return new ResourceList<AlbumAttributes>
+            {
+                Data =
+                [
+                    new Resource<AlbumAttributes>
+                    {
+                        Id = "1",
+                        Attributes = new AlbumAttributes { Name = "Album" },
+                        Relationships = new Relationships
+                        {
+                            Artists = new ResourceList<ArtistAttributes> { Data = [new Resource<ArtistAttributes> { Id = "ar1" }] },
+                            Tracks = new TrackList
+                            {
+                                Data = [new Resource<SongAttributes> { Id = "t1", Attributes = new SongAttributes { Name = "One", TrackNumber = 1 } }],
+                                Next = "/v1/catalog/jp/albums/1/tracks?offset=1",
+                            },
+                        },
+                    },
+                ],
+            };
+        });
+        var catalog = Build(transport);
+
+        var album = await catalog.GetAlbumAsync("1", "jp", CancellationToken.None);
+
+        Assert.NotNull(album);
+        Assert.Equal(["ar1"], album.ArtistIds);
+        Assert.Equal(["t1", "t2"], album.Tracks.Select(track => track.Id));
+        Assert.All(album.Tracks, track => Assert.Equal("jp", track.Storefront));
+        Assert.Equal(2, transport.Requests.Count);
+        Assert.Contains("l=ja-jp", transport.Requests[1], StringComparison.Ordinal); // the language is kept on the next page
+    }
+
+    [Fact]
+    public async Task GetSongAsync_CarriesTheAlbumAndArtistIds()
+    {
+        var transport = new FakeTransport(_ => new ResourceList<SongAttributes>
+        {
+            Data =
+            [
+                new Resource<SongAttributes>
+                {
+                    Id = "s1",
+                    Attributes = new SongAttributes { Name = "Song" },
+                    Relationships = new Relationships
+                    {
+                        Albums = new ResourceList<AlbumAttributes> { Data = [new Resource<AlbumAttributes> { Id = "al1" }] },
+                        Artists = new ResourceList<ArtistAttributes> { Data = [new Resource<ArtistAttributes> { Id = "ar1" }] },
+                    },
+                },
+            ],
+        });
+
+        var song = await Build(transport).GetSongAsync("s1", "jp", CancellationToken.None);
+
+        Assert.NotNull(song);
+        Assert.Equal(["al1"], song.AlbumIds);
+        Assert.Equal(["ar1"], song.ArtistIds);
+        Assert.Empty(song.Tracks);
     }
 
     [Fact]
