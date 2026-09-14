@@ -3,7 +3,9 @@ using System.IO;
 using System.Net.Http;
 using Jellyfin.Plugin.AppleMusic.Catalog;
 using Jellyfin.Plugin.AppleMusic.Catalog.Caching;
+using Jellyfin.Plugin.AppleMusic.Catalog.Coverage;
 using Jellyfin.Plugin.AppleMusic.Catalog.Throttling;
+using Jellyfin.Plugin.AppleMusic.Coverage;
 using Jellyfin.Plugin.AppleMusic.Organizer;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Net;
@@ -59,6 +61,14 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             provider.GetRequiredService<IAppleMusicCatalog>(),
             CurrentOrganizeOptions,
             provider.GetRequiredService<ILogger<LibraryOrganizer>>()));
+
+        serviceCollection.AddSingleton(provider => new ArtistCoverageRunner(
+            provider.GetRequiredService<ILibraryManager>(),
+            new ArtistCoverageProbe(
+                provider.GetRequiredService<IAppleMusicCatalog>(),
+                provider.GetRequiredService<ILogger<ArtistCoverageProbe>>()),
+            new ArtistCoverageStore(CoverageReportPath(provider.GetRequiredService<IApplicationPaths>())),
+            provider.GetRequiredService<ILogger<ArtistCoverageRunner>>()));
     }
 
     /// <summary>
@@ -80,6 +90,11 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
 
     private static string CacheRoot(IApplicationPaths paths)
         => Path.Combine(paths.CachePath, "apple-music");
+
+    // Under the data directory rather than the cache: clearing the cache must
+    // not take the report with it.
+    private static string CoverageReportPath(IApplicationPaths paths)
+        => Path.Combine(paths.DataPath, "apple-music", "artist-coverage.json");
 
     private static HttpClient CreateHttpClient(IServiceProvider provider)
         => provider.GetRequiredService<IHttpClientFactory>().CreateClient(NamedClient.Default);

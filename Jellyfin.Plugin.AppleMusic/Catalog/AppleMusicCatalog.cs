@@ -23,6 +23,11 @@ public class AppleMusicCatalog : IAppleMusicCatalog
     // Albums rarely exceed one page of tracks; this only bounds a runaway "next" chain.
     private const int MaxTrackPages = 20;
 
+    // Artists carry no editorialNotes, and their biography, birth date and
+    // country are omitted unless asked for by name. Albums need no extend:
+    // their editorialNotes come back by default.
+    private const string ArtistExtend = "&extend=artistBio,bornOrFormed,origin";
+
     private readonly ICatalogTransport _transport;
     private readonly Func<CatalogOptions> _options;
     private readonly ILogger<AppleMusicCatalog> _logger;
@@ -48,15 +53,19 @@ public class AppleMusicCatalog : IAppleMusicCatalog
 
     /// <inheritdoc />
     public Task<IReadOnlyList<CatalogItem<SongAttributes>>> SearchSongsAsync(string term, CancellationToken cancellationToken)
-        => SearchAsync(term, SongsType, results => results.Songs, cancellationToken);
+        => SearchAsync(term, SongsType, results => results.Songs, _options().MaxSearchResults, propagateRateLimit: false, cancellationToken);
 
     /// <inheritdoc />
     public Task<IReadOnlyList<CatalogItem<AlbumAttributes>>> SearchAlbumsAsync(string term, CancellationToken cancellationToken)
-        => SearchAsync(term, AlbumsType, results => results.Albums, cancellationToken);
+        => SearchAsync(term, AlbumsType, results => results.Albums, _options().MaxSearchResults, propagateRateLimit: false, cancellationToken);
 
     /// <inheritdoc />
     public Task<IReadOnlyList<CatalogItem<ArtistAttributes>>> SearchArtistsAsync(string term, CancellationToken cancellationToken)
-        => SearchAsync(term, ArtistsType, results => results.Artists, cancellationToken);
+        => SearchAsync(term, ArtistsType, results => results.Artists, _options().MaxSearchResults, propagateRateLimit: false, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<CatalogItem<ArtistAttributes>>> SearchArtistsAsync(string term, int limit, CancellationToken cancellationToken)
+        => SearchAsync(term, ArtistsType, results => results.Artists, limit, propagateRateLimit: true, cancellationToken);
 
     /// <inheritdoc />
     public Task<CatalogItem<SongAttributes>?> GetSongAsync(string id, string? storefront, CancellationToken cancellationToken)
@@ -158,6 +167,8 @@ public class AppleMusicCatalog : IAppleMusicCatalog
         string term,
         string type,
         Func<SearchResults, ResourceList<TAttributes>?> select,
+        int limit,
+        bool propagateRateLimit,
         CancellationToken cancellationToken)
         where TAttributes : class
     {
@@ -180,7 +191,7 @@ public class AppleMusicCatalog : IAppleMusicCatalog
                     Uri.EscapeDataString(storefront),
                     Uri.EscapeDataString(term),
                     type,
-                    options.MaxSearchResults,
+                    Math.Max(1, limit),
                     Uri.EscapeDataString(options.GetLanguageFor(storefront)));
 
                 var response = await FetchAsync<SearchResponse>(url, cancellationToken);
@@ -199,7 +210,7 @@ public class AppleMusicCatalog : IAppleMusicCatalog
                 _logger.LogDebug("No {Type} for {Term} in storefront {Storefront}", type, term, storefront);
             }
         }
-        catch (CatalogRateLimitedException)
+        catch (CatalogRateLimitedException) when (!propagateRateLimit)
         {
             // The transport has already paused and retried. Give up on the
             // whole lookup rather than falling through to the next storefront:
@@ -241,11 +252,12 @@ public class AppleMusicCatalog : IAppleMusicCatalog
 
                 var url = string.Format(
                     CultureInfo.InvariantCulture,
-                    "/v1/catalog/{0}/{1}/{2}?l={3}",
+                    "/v1/catalog/{0}/{1}/{2}?l={3}{4}",
                     Uri.EscapeDataString(current),
                     type,
                     Uri.EscapeDataString(id),
-                    Uri.EscapeDataString(options.GetLanguageFor(current)));
+                    Uri.EscapeDataString(options.GetLanguageFor(current)),
+                    type == ArtistsType ? ArtistExtend : string.Empty);
 
                 var response = await FetchAsync<ResourceList<TAttributes>>(url, cancellationToken);
                 var resource = response?.Data.FirstOrDefault(r => r.Attributes is not null && !string.IsNullOrEmpty(r.Id));

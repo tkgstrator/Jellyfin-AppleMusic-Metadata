@@ -84,21 +84,24 @@ public sealed class LibraryOrganizer : IDisposable
             var plans = await PlanAsync(progress, cancellationToken);
             var moves = plans.SelectMany(plan => plan.Moves).ToList();
             var skipped = plans.SelectMany(plan => plan.Skipped).ToList();
+            var artists = GroupByArtist(plans);
 
             if (dryRun)
             {
-                foreach (var move in moves)
-                {
-                    _logger.LogInformation("[dry run] would move {Kind} {From} -> {To}", move.Kind, move.From, move.To);
-                }
+                LogByArtist(artists);
 
                 foreach (var reason in skipped)
                 {
                     _logger.LogInformation("[dry run] skipping: {Reason}", reason);
                 }
 
-                _logger.LogInformation("[dry run] {Moves} move(s) planned across {Albums} album(s), {Skipped} skipped", moves.Count, plans.Count, skipped.Count);
-                return new OrganizeReport { DryRun = true, Moves = moves, Skipped = skipped, Albums = plans.Count };
+                _logger.LogInformation(
+                    "[dry run] {Moves} move(s) planned across {Albums} album(s) by {Artists} artist(s), {Skipped} skipped",
+                    moves.Count,
+                    plans.Count,
+                    artists.Count,
+                    skipped.Count);
+                return new OrganizeReport { DryRun = true, Moves = moves, Skipped = skipped, Albums = plans.Count, Artists = artists };
             }
 
             var failed = new List<string>();
@@ -111,17 +114,82 @@ public sealed class LibraryOrganizer : IDisposable
 
             CleanUpVacatedDirectories(plans, failed);
 
-            _logger.LogInformation("Applied {Applied} move(s) across {Albums} album(s); {Skipped} skipped, {Failed} failed", applied, plans.Count, skipped.Count, failed.Count);
+            _logger.LogInformation(
+                "Applied {Applied} move(s) across {Albums} album(s) by {Artists} artist(s); {Skipped} skipped, {Failed} failed",
+                applied,
+                plans.Count,
+                artists.Count,
+                skipped.Count,
+                failed.Count);
             if (applied > 0)
             {
                 _libraryManager.QueueLibraryScan();
             }
 
-            return new OrganizeReport { Moves = moves, Skipped = skipped, Failed = failed, Applied = applied, Albums = plans.Count };
+            return new OrganizeReport { Moves = moves, Skipped = skipped, Failed = failed, Applied = applied, Albums = plans.Count, Artists = artists };
         }
         finally
         {
             _running.Release();
+        }
+    }
+
+    /// <summary>
+    /// Rolls the per-album plans up by artist. Albums the catalog could not
+    /// resolve carry no artist, so they land under an empty name and are
+    /// reported at the end rather than dropped.
+    /// </summary>
+    private static List<ArtistOutcome> GroupByArtist(IReadOnlyList<AlbumPlan> plans)
+        => plans
+            .GroupBy(plan => (plan.Artist, plan.ArtistId))
+            .Select(group => new ArtistOutcome
+            {
+                Artist = group.Key.Artist,
+                ArtistId = group.Key.ArtistId,
+                Albums = group
+                    .Select(plan => new AlbumOutcome
+                    {
+                        Album = plan.Album,
+                        AlbumId = plan.AlbumId,
+                        TargetName = plan.TargetAlbumDirectory.Length == 0
+                            ? string.Empty
+                            : Path.GetFileName(Path.TrimEndingDirectorySeparator(plan.TargetAlbumDirectory)),
+                        DirectoryMoves = plan.Moves.Any(move => move.Kind == MoveKind.Directory),
+                        TrackRenames = plan.Moves.Count(move => move.Kind == MoveKind.File),
+                        Skipped = plan.Skipped,
+                    })
+                    .OrderBy(album => album.Album, StringComparer.OrdinalIgnoreCase)
+                    .ToList(),
+            })
+            .OrderBy(artist => artist.Artist.Length == 0)
+            .ThenBy(artist => artist.Artist, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private void LogByArtist(IReadOnlyList<ArtistOutcome> artists)
+    {
+        foreach (var artist in artists)
+        {
+            _logger.LogInformation(
+                "[dry run] {Artist} ({ArtistId}): {Albums} album(s), {Moved} moving, {Tracks} track rename(s)",
+                artist.Artist.Length == 0 ? "(unresolved)" : artist.Artist,
+                artist.ArtistId,
+                artist.AlbumCount,
+                artist.MovedAlbums,
+                artist.TrackRenames);
+
+            foreach (var album in artist.Albums)
+            {
+                if (album.TargetName.Length == 0)
+                {
+                    continue;
+                }
+
+                _logger.LogInformation(
+                    "[dry run]   {Album} -> {Target} ({Tracks} track rename(s))",
+                    album.Album,
+                    album.TargetName,
+                    album.TrackRenames);
+            }
         }
     }
 

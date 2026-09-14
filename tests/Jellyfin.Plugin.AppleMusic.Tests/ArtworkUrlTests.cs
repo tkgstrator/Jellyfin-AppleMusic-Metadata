@@ -52,4 +52,19 @@ public class ArtworkUrlTests
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => ArtworkUrl.Resolve(RealTemplate, size));
     }
+
+    [Fact]
+    public void Resolve_UsesTheCropCodeAppleAsksFor()
+    {
+        var url = ArtworkUrl.Resolve("https://example.com/{w}x{h}{c}.{f}", 800, "ac");
+
+        Assert.Equal("https://example.com/800x800ac.jpg", url);
+    }
+
+    [Fact]
+    public void Resolve_FallsBackToTheDefaultCropWhenNoneIsGiven()
+    {
+        Assert.Equal("https://example.com/800x800bb.jpg", ArtworkUrl.Resolve("https://example.com/{w}x{h}{c}.{f}", 800, null));
+        Assert.Equal("https://example.com/800x800bb.jpg", ArtworkUrl.Resolve("https://example.com/{w}x{h}{c}.{f}", 800, "  "));
+    }
 }

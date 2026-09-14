@@ -32,6 +32,28 @@ public class OrganizePlannerTests
             plan.Moves);
         Assert.Equal(P("Kenshi Yonezu"), plan.VacatedDirectory);
         Assert.Equal(P("米津玄師-[amid-ar1]"), plan.TargetArtistDirectory);
+
+        // The identity the grouped report is built from.
+        Assert.Equal("米津玄師", plan.Artist);
+        Assert.Equal("ar1", plan.ArtistId);
+        Assert.Equal("al1", plan.AlbumId);
+        Assert.Equal(target, plan.TargetAlbumDirectory);
+    }
+
+    [Fact]
+    public void Plan_CarriesTheIdentityEvenWhenNothingMoves()
+    {
+        var dir = P("米津玄師-[amid-ar1]", "YANKEE-[amid-al1]");
+        var album = Album("YANKEE", dir, Track(Path.Combine(dir, "01 MAD HEAD LOVE.flac"), id: "t1", disc: 1, track: 1));
+        var catalog = CatalogAlbum("al1", "YANKEE", ("t1", 1, 1, "MAD HEAD LOVE"));
+
+        var plan = new OrganizePlanner(_ => false).Plan(album, catalog, "米津玄師", "ar1", new OrganizeOptions());
+
+        Assert.Empty(plan.Moves);
+        Assert.Equal("米津玄師", plan.Artist);
+        Assert.Equal("al1", plan.AlbumId);
+        // Already in place, so the target is where it already is.
+        Assert.Equal(dir, plan.TargetAlbumDirectory);
     }
 
     [Fact]
