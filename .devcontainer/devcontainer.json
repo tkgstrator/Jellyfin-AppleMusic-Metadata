@@ -10,7 +10,9 @@
   "remoteEnv": {
     "ANTHROPIC_BASE_URL": "${localEnv:ANTHROPIC_BASE_URL}",
     "ANTHROPIC_AUTH_TOKEN": "${localEnv:ANTHROPIC_AUTH_TOKEN}",
-    "WAKATIME_API_KEY": "${localEnv:WAKATIME_API_KEY}"
+    "WAKATIME_API_KEY": "${localEnv:WAKATIME_API_KEY}",
+    "JELLYFIN_API_KEY": "${localEnv:JELLYFIN_API_KEY}",
+    "JELLYFIN_URL": "${localEnv:JELLYFIN_URL}"
   },
   "containerEnv": {
     "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"

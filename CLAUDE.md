@@ -59,7 +59,9 @@ Jellyfin.Plugin.AppleMusic/Catalog/     API クライアント層（Jellyfin 非
   Models/            Apple 公式スキーマの DTO
   ArtworkUrl.cs      {w}x{h} テンプレートの解決
   WebPlayTokenProvider.cs  バンドルからのトークン抽出・期限管理
-  WebPlayTransport.cs      amp-api への HTTP
+  WebPlayTransport.cs      amp-api への HTTP（429 は CatalogRateLimitedException）
+  Throttling/              直列化・間隔・429 時のクールダウンと再試行
+  Caching/                 応答キャッシュと同時リクエストの束ね
   AppleMusicCatalog.cs     ストアフロントのフォールバック
 ```
 
@@ -68,10 +70,52 @@ Jellyfin.Plugin.AppleMusic/ExternalIds/  ProviderKeys, 3 つの IExternalId,
                                          IExternalUrlProvider
 Jellyfin.Plugin.AppleMusic/Providers/    Album/Artist/Song のメタデータ、
                                          Album/Artist の画像
-Jellyfin.Plugin.AppleMusic/Tasks/        キャッシュ掃除の週次タスク
-Jellyfin.Plugin.AppleMusic/Api/          設定画面から叩くキャッシュ操作 API
+Jellyfin.Plugin.AppleMusic/Organizer/    [amid-id] タグ、名前の正規化、移動計画（純粋）と
+                                         実行（Jellyfin 依存）
+Jellyfin.Plugin.AppleMusic/Coverage/     アーティスト名カバレッジ計測の実行（Jellyfin 依存）。
+                                         判定・レポート・保存は Catalog/Coverage/（純粋）
+Jellyfin.Plugin.AppleMusic/Tasks/        キャッシュ掃除の週次タスク、ライブラリ整理タスク、
+                                         アーティストカバレッジ計測タスク
+Jellyfin.Plugin.AppleMusic/Api/          設定画面から叩くキャッシュ操作・整理・カバレッジ API
 PluginServiceRegistrator.cs              カタログ層の DI 登録
 ```
+
+**プロバイダの ID 解決は 3 段階: 保存済み ID → ディレクトリ名の `[amid-id]` → 検索。**
+検索は最後の手段（IP 単位でレート制限される）。曲はアルバムのタグから
+`GetAlbumAsync` → `Tracks` をトラック番号で引くので、アルバムが特定できていれば
+曲の検索は要らない。ID 引きの応答には `relationships` が付き、`CatalogItem` の
+`ArtistIds` / `AlbumIds` / `Tracks` に載る（検索結果には付かない）。
+
+**初回スキャンでは曲プロバイダにタグが渡らない。** Jellyfin は `GetLookupInfo()` を
+作ってから ID3 を読むプリリフレッシュを走らせる（`MetadataService.RefreshMetadata`）。
+つまり初回の `SongInfo` は `Name` = ファイル名、`IndexNumber` = null。だから
+`SongMetadataProvider.MatchTrack` はファイル名の `01` / `2-01` / `01 - Title` から
+番号を読む（`FileNames.ParseTrackFileName`）。整理後のファイル名は必ずこの形なので、
+以後の初回スキャンも検索なしで確定する。
+
+**整理（Organizer）は計画と実行を分ける。** `OrganizePlanner` は Jellyfin にも
+ディスクにも触らない純粋ロジックで、移動先の決定・衝突回避・トラック対応付けの
+規則はすべてここのユニットテストで固定する。`LibraryOrganizer` は Jellyfin から
+スナップショットを集めて計画を適用するだけ。移動後は Jellyfin の DB を書き換えず
+スキャンに任せる（再生回数は消える。利用者と合意済み）。`IScheduledTask.Key` は
+`AppleMusicOrganize`、既定トリガーなし。
+
+**曲名を付けたファイルは曲と一緒に改名する。** Jellyfin は歌詞などのサイドカーを
+ファイル名で対応付けるので、曲だけ改名すると `.lrc` が孤立する（実ライブラリに
+10,397 件）。`{曲のファイル名から拡張子を除いた部分}.` で始まるものをサイドカーと
+みなし、残りの部分は保つ（`01.ja.lrc` → `01 Title.ja.lrc`）。`cover.jpg` は語幹が
+違うのでディレクトリ移動に任せる。`MoveKind.Sidecar` に分けてあるのは、レポートの
+「track rename(s)」が曲数より大きくならないようにするため。
+
+**アーティストカバレッジ計測は検索を 1 名 1 回・直列で送り、429 で打ち切る。**
+`ArtistCoverageProbe` は `SearchArtistsAsync(term, limit, ct)` を使う。この
+オーバーロードだけは `CatalogRateLimitedException` を握りつぶさず伝播する。
+プロバイダ向けの検索が空を返すのは「未回答を『無い』と誤認しても次回の更新で直る」
+からだが、一括計測では未回答と不在を区別しないと数字が嘘になる。`limit=5` にして
+あるのは応答を 8 KB 以下に収めてディスクキャッシュに載せ、打ち切り後の再実行を
+続きから始めるため。レポートは `DataPath/apple-music/artist-coverage.json`
+（キャッシュ削除で消えないよう cache ではなく data）。`IScheduledTask.Key` は
+`AppleMusicArtistCoverage`、既定トリガーなし。
 
 **期限切れエントリは自分では消えない。** 読み出し時に無視されるだけなので、
 `CacheMaintenanceTask`（週次）と設定画面のボタンが `PruneAsync` を呼ぶ。
@@ -82,6 +126,19 @@ PluginServiceRegistrator.cs              カタログ層の DI 登録
 事情があるため、ロジックはここに寄せてユニットテストで検証する。`Providers/` は
 「カタログの戻り値を Jellyfin の型に詰め替えるだけ」の薄い層にとどめる。
 
+**アーティストの ID 引きだけ `extend` が要る。** アルバムは `editorialNotes` が
+既定で返るが、**アーティストには `editorialNotes` が存在しない**（実測: `extend` を
+付けても返らない）。代わりに `extend=artistBio,bornOrFormed,origin` で経歴・生年・
+出身国が返る。`AppleMusicCatalog.ArtistExtend` がこれを付ける。`bornOrFormed` は
+`l` に追従して現地語で返る（`1991年3月10日` / `March 10, 1991`）ので、
+`ArtistMetadataProvider.ParseBornOrFormed` が和式・英式・年のみを順に試す。
+`artistBio` は `<br>` を含むため `ToPlainText` で改行に直す。
+
+**アートワークはテンプレートで返る。URL を解決するだけで、音声ファイルには
+埋め込まない。** `{w}x{h}{c}.{f}` の `{c}` は切り抜き指定で、`artwork` の
+`defaultCropCode` に従う（アーティストは `ac` のことがある）。ダウンロードと
+保存は Jellyfin の担当。
+
 **カタログ ID はストアフロント単位。** ID を保存するときは必ず
 `ProviderKeys.Storefront` も一緒に書く。jp で見つけた ID を us に問い合わせると
 別物を掴む。
@@ -89,6 +146,19 @@ PluginServiceRegistrator.cs              カタログ層の DI 登録
 **`ICatalogTransport` は生の JSON を返す。** デシリアライズは `AppleMusicCatalog`
 の責務。こうしてあるのは、キャッシュがレスポンスをそのまま保存でき、
 シリアライズの往復が要らないため。
+
+**429 は `null` ではなく `CatalogRateLimitedException` で伝える。** `null` は「無かった」
+として 24 時間キャッシュされるため、制限中の未回答を `null` にすると、その間に触った
+曲が全部「Apple Music に無い」扱いで固定される（v0.1.1 で実際に起きた）。例外は
+キャッシュ層を素通りし、`AppleMusicCatalog` が検索・ID 引き単位で捕まえて空を返す
+（次のストアフロントにも進まない）。
+
+**スロットルは `ThrottledCatalogTransport` が担う。** 構成は
+cache → throttle → network。amp-api の `search` は IP 単位で制限され、残量も
+`Retry-After` も返さず、一度引っかかると長時間拒否し続ける（実測: ID 引きは
+通るが search だけ 429 が続く）。だから **並列にしない・間隔を空ける** が唯一の
+対策で、429 後はクールダウンを倍々にしつつ再試行し、上限に達したら待たずに諦める
+（スキャンを何十分も止めないため）。
 
 **キャッシュは `CachingCatalogTransport` が担う。** 実 transport をラップするので、
 検索も ID 引きも自動的に対象になる。効果は 2 つあり、片方だけでは不十分:

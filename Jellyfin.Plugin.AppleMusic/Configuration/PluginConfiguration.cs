@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using Jellyfin.Plugin.AppleMusic.Catalog;
 using Jellyfin.Plugin.AppleMusic.Catalog.Caching;
+using Jellyfin.Plugin.AppleMusic.Catalog.Throttling;
+using Jellyfin.Plugin.AppleMusic.Organizer;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.AppleMusic.Configuration;
@@ -49,11 +51,14 @@ public class PluginConfiguration : BasePluginConfiguration
         MaxSearchResults = 25;
         ArtworkSize = 1400;
         RequestTimeoutSeconds = 30;
+        RequestIntervalMilliseconds = 1000;
         EnableCache = true;
         CacheLifetimeDays = 30;
         CacheNotFoundLifetimeHours = 24;
         MaxCacheMemoryMegabytes = 64;
         MaxPersistedEntryKilobytes = 8;
+        OrganizeRenameTrackFiles = true;
+        OrganizeDryRun = true;
     }
 
     /// <summary>
@@ -97,6 +102,14 @@ public class PluginConfiguration : BasePluginConfiguration
     public int RequestTimeoutSeconds { get; set; }
 
     /// <summary>
+    /// Gets or sets the minimum time between two catalog requests, in
+    /// milliseconds. Apple limits the search endpoint per IP address and keeps
+    /// refusing for a long time once tripped, so requests are never sent in
+    /// parallel and are spaced out by at least this much.
+    /// </summary>
+    public int RequestIntervalMilliseconds { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether catalog responses are cached
     /// locally so the same lookup is not fetched twice.
     /// </summary>
@@ -122,6 +135,18 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Larger ones are kept in memory only.
     /// </summary>
     public int MaxPersistedEntryKilobytes { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the organizer renames track
+    /// files to <c>01 Title.ext</c> as well as directories.
+    /// </summary>
+    public bool OrganizeRenameTrackFiles { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the organize task only logs
+    /// what it would move. The settings page can still apply explicitly.
+    /// </summary>
+    public bool OrganizeDryRun { get; set; }
 
     /// <summary>
     /// Gets the storefronts to query, in order.
@@ -152,6 +177,31 @@ public class PluginConfiguration : BasePluginConfiguration
             LanguageOverride = LanguageOverride,
             MaxSearchResults = MaxSearchResults,
             ArtworkSize = ArtworkSize,
+        };
+    }
+
+    /// <summary>
+    /// Projects the organizer settings onto the options used by the organizer.
+    /// </summary>
+    /// <returns>Organizer options.</returns>
+    public OrganizeOptions ToOrganizeOptions()
+    {
+        return new OrganizeOptions
+        {
+            RenameTrackFiles = OrganizeRenameTrackFiles,
+            DryRun = OrganizeDryRun,
+        };
+    }
+
+    /// <summary>
+    /// Projects the request pacing settings onto the options used by the throttle.
+    /// </summary>
+    /// <returns>Throttle options.</returns>
+    public ThrottleOptions ToThrottleOptions()
+    {
+        return new ThrottleOptions
+        {
+            MinInterval = TimeSpan.FromMilliseconds(Math.Max(0, RequestIntervalMilliseconds)),
         };
     }
 

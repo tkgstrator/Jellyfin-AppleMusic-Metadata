@@ -20,6 +20,14 @@ public class AppleMusicCatalog : IAppleMusicCatalog
     private const string AlbumsType = "albums";
     private const string ArtistsType = "artists";
 
+    // Albums rarely exceed one page of tracks; this only bounds a runaway "next" chain.
+    private const int MaxTrackPages = 20;
+
+    // Artists carry no editorialNotes, and their biography, birth date and
+    // country are omitted unless asked for by name. Albums need no extend:
+    // their editorialNotes come back by default.
+    private const string ArtistExtend = "&extend=artistBio,bornOrFormed,origin";
+
     private readonly ICatalogTransport _transport;
     private readonly Func<CatalogOptions> _options;
     private readonly ILogger<AppleMusicCatalog> _logger;
@@ -45,15 +53,19 @@ public class AppleMusicCatalog : IAppleMusicCatalog
 
     /// <inheritdoc />
     public Task<IReadOnlyList<CatalogItem<SongAttributes>>> SearchSongsAsync(string term, CancellationToken cancellationToken)
-        => SearchAsync(term, SongsType, results => results.Songs, cancellationToken);
+        => SearchAsync(term, SongsType, results => results.Songs, _options().MaxSearchResults, propagateRateLimit: false, cancellationToken);
 
     /// <inheritdoc />
     public Task<IReadOnlyList<CatalogItem<AlbumAttributes>>> SearchAlbumsAsync(string term, CancellationToken cancellationToken)
-        => SearchAsync(term, AlbumsType, results => results.Albums, cancellationToken);
+        => SearchAsync(term, AlbumsType, results => results.Albums, _options().MaxSearchResults, propagateRateLimit: false, cancellationToken);
 
     /// <inheritdoc />
     public Task<IReadOnlyList<CatalogItem<ArtistAttributes>>> SearchArtistsAsync(string term, CancellationToken cancellationToken)
-        => SearchAsync(term, ArtistsType, results => results.Artists, cancellationToken);
+        => SearchAsync(term, ArtistsType, results => results.Artists, _options().MaxSearchResults, propagateRateLimit: false, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<CatalogItem<ArtistAttributes>>> SearchArtistsAsync(string term, int limit, CancellationToken cancellationToken)
+        => SearchAsync(term, ArtistsType, results => results.Artists, limit, propagateRateLimit: true, cancellationToken);
 
     /// <inheritdoc />
     public Task<CatalogItem<SongAttributes>?> GetSongAsync(string id, string? storefront, CancellationToken cancellationToken)
@@ -83,6 +95,54 @@ public class AppleMusicCatalog : IAppleMusicCatalog
             .ToList();
     }
 
+    private static IReadOnlyList<string> Ids<TAttributes>(ResourceList<TAttributes>? list)
+        where TAttributes : class
+        => list is null
+            ? []
+            : list.Data.Where(resource => !string.IsNullOrEmpty(resource.Id)).Select(resource => resource.Id).ToList();
+
+    /// <summary>
+    /// Builds the item of an id lookup, carrying the relationships along and
+    /// following the track list to its end when Apple paged it.
+    /// </summary>
+    private async Task<CatalogItem<TAttributes>> ToLookupItemAsync<TAttributes>(
+        Resource<TAttributes> resource,
+        string storefront,
+        string language,
+        CancellationToken cancellationToken)
+        where TAttributes : class
+    {
+        var relationships = resource.Relationships;
+        var tracks = new List<CatalogItem<SongAttributes>>();
+        if (relationships?.Tracks is not null)
+        {
+            tracks.AddRange(ToItems(relationships.Tracks, storefront));
+
+            var next = relationships.Tracks.Next;
+            for (var page = 0; !string.IsNullOrEmpty(next) && page < MaxTrackPages; page++)
+            {
+                var url = next.Contains("l=", StringComparison.Ordinal)
+                    ? next
+                    : next + (next.Contains('?', StringComparison.Ordinal) ? "&" : "?") + "l=" + Uri.EscapeDataString(language);
+                var more = await FetchAsync<TrackList>(url, cancellationToken);
+                if (more is null)
+                {
+                    break;
+                }
+
+                tracks.AddRange(ToItems(more, storefront));
+                next = more.Next;
+            }
+        }
+
+        return new CatalogItem<TAttributes>(resource.Id, storefront, resource.Attributes!)
+        {
+            ArtistIds = Ids(relationships?.Artists),
+            AlbumIds = Ids(relationships?.Albums),
+            Tracks = tracks,
+        };
+    }
+
     private async Task<T?> FetchAsync<T>(string url, CancellationToken cancellationToken)
         where T : class
     {
@@ -107,6 +167,8 @@ public class AppleMusicCatalog : IAppleMusicCatalog
         string term,
         string type,
         Func<SearchResults, ResourceList<TAttributes>?> select,
+        int limit,
+        bool propagateRateLimit,
         CancellationToken cancellationToken)
         where TAttributes : class
     {
@@ -117,33 +179,46 @@ public class AppleMusicCatalog : IAppleMusicCatalog
         }
 
         var options = _options();
-        foreach (var storefront in options.Storefronts)
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var url = string.Format(
-                CultureInfo.InvariantCulture,
-                "/v1/catalog/{0}/search?term={1}&types={2}&limit={3}&l={4}",
-                Uri.EscapeDataString(storefront),
-                Uri.EscapeDataString(term),
-                type,
-                options.MaxSearchResults,
-                Uri.EscapeDataString(options.GetLanguageFor(storefront)));
-
-            var response = await FetchAsync<SearchResponse>(url, cancellationToken);
-            var items = response?.Results is null ? [] : ToItems(select(response.Results), storefront);
-            if (items.Count > 0)
+            foreach (var storefront in options.Storefronts)
             {
-                _logger.LogInformation(
-                    "Found {Count} {Type} for {Term} in storefront {Storefront}",
-                    items.Count,
-                    type,
-                    term,
-                    storefront);
-                return items;
-            }
+                cancellationToken.ThrowIfCancellationRequested();
 
-            _logger.LogDebug("No {Type} for {Term} in storefront {Storefront}", type, term, storefront);
+                var url = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "/v1/catalog/{0}/search?term={1}&types={2}&limit={3}&l={4}",
+                    Uri.EscapeDataString(storefront),
+                    Uri.EscapeDataString(term),
+                    type,
+                    Math.Max(1, limit),
+                    Uri.EscapeDataString(options.GetLanguageFor(storefront)));
+
+                var response = await FetchAsync<SearchResponse>(url, cancellationToken);
+                var items = response?.Results is null ? [] : ToItems(select(response.Results), storefront);
+                if (items.Count > 0)
+                {
+                    _logger.LogInformation(
+                        "Found {Count} {Type} for {Term} in storefront {Storefront}",
+                        items.Count,
+                        type,
+                        term,
+                        storefront);
+                    return items;
+                }
+
+                _logger.LogDebug("No {Type} for {Term} in storefront {Storefront}", type, term, storefront);
+            }
+        }
+        catch (CatalogRateLimitedException) when (!propagateRateLimit)
+        {
+            // The transport has already paused and retried. Give up on the
+            // whole lookup rather than falling through to the next storefront:
+            // nothing is cached, so the next refresh simply asks again.
+            _logger.LogWarning(
+                "Apple Music did not answer the {Type} search for {Term} because of rate limiting; the item stays unmatched until the next refresh",
+                type,
+                term);
         }
 
         return [];
@@ -169,25 +244,37 @@ public class AppleMusicCatalog : IAppleMusicCatalog
             ? options.Storefronts
             : [storefront];
 
-        foreach (var current in storefronts)
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var url = string.Format(
-                CultureInfo.InvariantCulture,
-                "/v1/catalog/{0}/{1}/{2}?l={3}",
-                Uri.EscapeDataString(current),
-                type,
-                Uri.EscapeDataString(id),
-                Uri.EscapeDataString(options.GetLanguageFor(current)));
-
-            var response = await FetchAsync<ResourceList<TAttributes>>(url, cancellationToken);
-            var items = ToItems(response, current);
-            if (items.Count > 0)
+            foreach (var current in storefronts)
             {
-                _logger.LogDebug("Resolved {Type} {Id} in storefront {Storefront}", type, id, current);
-                return items[0];
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var url = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "/v1/catalog/{0}/{1}/{2}?l={3}{4}",
+                    Uri.EscapeDataString(current),
+                    type,
+                    Uri.EscapeDataString(id),
+                    Uri.EscapeDataString(options.GetLanguageFor(current)),
+                    type == ArtistsType ? ArtistExtend : string.Empty);
+
+                var response = await FetchAsync<ResourceList<TAttributes>>(url, cancellationToken);
+                var resource = response?.Data.FirstOrDefault(r => r.Attributes is not null && !string.IsNullOrEmpty(r.Id));
+                if (resource is not null)
+                {
+                    _logger.LogDebug("Resolved {Type} {Id} in storefront {Storefront}", type, id, current);
+                    return await ToLookupItemAsync(resource, current, options.GetLanguageFor(current), cancellationToken);
+                }
             }
+        }
+        catch (CatalogRateLimitedException)
+        {
+            _logger.LogWarning(
+                "Apple Music did not answer the lookup of {Type} {Id} because of rate limiting; the item stays unmatched until the next refresh",
+                type,
+                id);
+            return null;
         }
 
         _logger.LogDebug("Could not resolve {Type} {Id}", type, id);

@@ -1,12 +1,16 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.AppleMusic.Catalog;
 using Jellyfin.Plugin.AppleMusic.Catalog.Models;
 using Jellyfin.Plugin.AppleMusic.ExternalIds;
+using Jellyfin.Plugin.AppleMusic.Organizer;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Providers;
@@ -19,7 +23,7 @@ namespace Jellyfin.Plugin.AppleMusic.Providers;
 /// <summary>
 /// Supplies artist metadata from the Apple Music catalog.
 /// </summary>
-public class ArtistMetadataProvider : IRemoteMetadataProvider<MusicArtist, ArtistInfo>
+public partial class ArtistMetadataProvider : IRemoteMetadataProvider<MusicArtist, ArtistInfo>
 {
     private readonly IAppleMusicCatalog _catalog;
     private readonly HttpClient _httpClient;
@@ -67,8 +71,24 @@ public class ArtistMetadataProvider : IRemoteMetadataProvider<MusicArtist, Artis
         var item = new MusicArtist
         {
             Name = artist.Attributes.Name,
-            Overview = artist.Attributes.EditorialNotes?.GetBest(),
+
+            // Artists have no editorialNotes; artistBio is the prose Apple
+            // offers for them. The fallback keeps working if that changes.
+            Overview = ToPlainText(artist.Attributes.ArtistBio)
+                ?? artist.Attributes.EditorialNotes?.GetBest(),
         };
+
+        var born = ParseBornOrFormed(artist.Attributes.BornOrFormed);
+        if (born is not null)
+        {
+            item.PremiereDate = born;
+            item.ProductionYear = born.Value.Year;
+        }
+
+        if (!string.IsNullOrWhiteSpace(artist.Attributes.Origin))
+        {
+            item.ProductionLocations = [artist.Attributes.Origin];
+        }
 
         foreach (var genre in artist.Attributes.GenreNames)
         {
@@ -84,6 +104,73 @@ public class ArtistMetadataProvider : IRemoteMetadataProvider<MusicArtist, Artis
     /// <inheritdoc />
     public Task<HttpResponseMessage> GetImageResponse(string url, CancellationToken cancellationToken)
         => _httpClient.GetAsync(new Uri(url), cancellationToken);
+
+    /// <summary>
+    /// Turns the biography's <c>&lt;br&gt;</c> markup into line breaks.
+    /// Jellyfin renders the overview as text, so the tags would show.
+    /// </summary>
+    /// <param name="value">Biography as Apple returns it.</param>
+    /// <returns>Plain text, or null when there was nothing.</returns>
+    internal static string? ToPlainText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var text = BreakTag().Replace(value, "\n").Trim();
+        return text.Length == 0 ? null : text;
+    }
+
+    /// <summary>
+    /// Reads the birth or formation date. Apple writes it in the requested
+    /// language, so this handles the Japanese form as well as whatever the
+    /// invariant and Japanese cultures can parse. A year on its own counts.
+    /// </summary>
+    /// <param name="value">Date as Apple returns it.</param>
+    /// <returns>The date, or null when it could not be read.</returns>
+    internal static DateTime? ParseBornOrFormed(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var japanese = JapaneseDate().Match(value);
+        if (japanese.Success)
+        {
+            return new DateTime(
+                int.Parse(japanese.Groups["y"].Value, CultureInfo.InvariantCulture),
+                int.Parse(japanese.Groups["m"].Value, CultureInfo.InvariantCulture),
+                int.Parse(japanese.Groups["d"].Value, CultureInfo.InvariantCulture),
+                0,
+                0,
+                0,
+                DateTimeKind.Utc);
+        }
+
+        foreach (var culture in new[] { CultureInfo.InvariantCulture, CultureInfo.GetCultureInfo("en-US"), CultureInfo.GetCultureInfo("ja-JP") })
+        {
+            if (DateTime.TryParse(value, culture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed))
+            {
+                return parsed;
+            }
+        }
+
+        var year = YearOnly().Match(value);
+        return year.Success
+            ? new DateTime(int.Parse(year.Groups["y"].Value, CultureInfo.InvariantCulture), 1, 1, 0, 0, 0, DateTimeKind.Utc)
+            : null;
+    }
+
+    [GeneratedRegex(@"<br\s*/?>", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex BreakTag();
+
+    [GeneratedRegex(@"^(?<y>\d{4})年(?<m>\d{1,2})月(?<d>\d{1,2})日", RegexOptions.CultureInvariant)]
+    private static partial Regex JapaneseDate();
+
+    [GeneratedRegex(@"(?<y>\d{4})", RegexOptions.CultureInvariant)]
+    private static partial Regex YearOnly();
 
     private static RemoteSearchResult ToSearchResult(CatalogItem<ArtistAttributes> artist)
     {
@@ -111,6 +198,17 @@ public class ArtistMetadataProvider : IRemoteMetadataProvider<MusicArtist, Artis
             _logger.LogDebug("Looking up artist by id {Id} ({Storefront})", id, storefront);
             var artist = await _catalog.GetArtistAsync(id, storefront, cancellationToken);
             return artist is null ? [] : [artist];
+        }
+
+        var tagged = FolderTag.Parse(Path.GetFileName(info.Path));
+        if (tagged is not null)
+        {
+            _logger.LogDebug("Looking up artist by the id tagged on its directory: {Id}", tagged);
+            var artist = await _catalog.GetArtistAsync(tagged, null, cancellationToken);
+            if (artist is not null)
+            {
+                return [artist];
+            }
         }
 
         _logger.LogDebug("Searching Apple Music artists for {Term}", info.Name);

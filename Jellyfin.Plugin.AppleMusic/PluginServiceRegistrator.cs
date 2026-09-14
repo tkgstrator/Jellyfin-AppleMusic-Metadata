@@ -3,9 +3,14 @@ using System.IO;
 using System.Net.Http;
 using Jellyfin.Plugin.AppleMusic.Catalog;
 using Jellyfin.Plugin.AppleMusic.Catalog.Caching;
+using Jellyfin.Plugin.AppleMusic.Catalog.Coverage;
+using Jellyfin.Plugin.AppleMusic.Catalog.Throttling;
+using Jellyfin.Plugin.AppleMusic.Coverage;
+using Jellyfin.Plugin.AppleMusic.Organizer;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -32,12 +37,17 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             CurrentCacheOptions,
             provider.GetRequiredService<ILogger<CatalogCache>>()));
 
-        // The cache wraps the real transport, so every lookup goes through it.
+        // Cache -> throttle -> network. The cache sits outside so hits are not
+        // paced; the throttle sits outside the network so every real request
+        // is, including the ones the cache issues for misses.
         serviceCollection.AddSingleton<ICatalogTransport>(provider => new CachingCatalogTransport(
-            new WebPlayTransport(
-                CreateHttpClient(provider),
-                provider.GetRequiredService<IWebPlayTokenProvider>(),
-                provider.GetRequiredService<ILogger<WebPlayTransport>>()),
+            new ThrottledCatalogTransport(
+                new WebPlayTransport(
+                    CreateHttpClient(provider),
+                    provider.GetRequiredService<IWebPlayTokenProvider>(),
+                    provider.GetRequiredService<ILogger<WebPlayTransport>>()),
+                CurrentThrottleOptions,
+                provider.GetRequiredService<ILogger<ThrottledCatalogTransport>>()),
             provider.GetRequiredService<ICatalogCache>(),
             provider.GetRequiredService<ILogger<CachingCatalogTransport>>()));
 
@@ -45,6 +55,20 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             provider.GetRequiredService<ICatalogTransport>(),
             CurrentOptions,
             provider.GetRequiredService<ILogger<AppleMusicCatalog>>()));
+
+        serviceCollection.AddSingleton(provider => new LibraryOrganizer(
+            provider.GetRequiredService<ILibraryManager>(),
+            provider.GetRequiredService<IAppleMusicCatalog>(),
+            CurrentOrganizeOptions,
+            provider.GetRequiredService<ILogger<LibraryOrganizer>>()));
+
+        serviceCollection.AddSingleton(provider => new ArtistCoverageRunner(
+            provider.GetRequiredService<ILibraryManager>(),
+            new ArtistCoverageProbe(
+                provider.GetRequiredService<IAppleMusicCatalog>(),
+                provider.GetRequiredService<ILogger<ArtistCoverageProbe>>()),
+            new ArtistCoverageStore(CoverageReportPath(provider.GetRequiredService<IApplicationPaths>())),
+            provider.GetRequiredService<ILogger<ArtistCoverageRunner>>()));
     }
 
     /// <summary>
@@ -55,11 +79,22 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     private static CatalogOptions CurrentOptions()
         => Plugin.Instance?.Configuration.ToCatalogOptions() ?? new CatalogOptions();
 
+    private static OrganizeOptions CurrentOrganizeOptions()
+        => Plugin.Instance?.Configuration.ToOrganizeOptions() ?? new OrganizeOptions();
+
+    private static ThrottleOptions CurrentThrottleOptions()
+        => Plugin.Instance?.Configuration.ToThrottleOptions() ?? new ThrottleOptions();
+
     private static CatalogCacheOptions CurrentCacheOptions()
         => Plugin.Instance?.Configuration.ToCacheOptions() ?? new CatalogCacheOptions();
 
     private static string CacheRoot(IApplicationPaths paths)
         => Path.Combine(paths.CachePath, "apple-music");
+
+    // Under the data directory rather than the cache: clearing the cache must
+    // not take the report with it.
+    private static string CoverageReportPath(IApplicationPaths paths)
+        => Path.Combine(paths.DataPath, "apple-music", "artist-coverage.json");
 
     private static HttpClient CreateHttpClient(IServiceProvider provider)
         => provider.GetRequiredService<IHttpClientFactory>().CreateClient(NamedClient.Default);

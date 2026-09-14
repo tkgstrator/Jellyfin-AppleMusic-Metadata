@@ -82,6 +82,18 @@
                         <input id="RequestTimeoutSeconds" name="RequestTimeoutSeconds" type="number"
                                is="emby-input" min="1" max="300" />
                     </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="RequestIntervalMilliseconds">
+                            Minimum interval between requests (ms)
+                        </label>
+                        <input id="RequestIntervalMilliseconds" name="RequestIntervalMilliseconds" type="number"
+                               is="emby-input" min="0" max="60000" step="100" />
+                        <div class="fieldDescription">
+                            Apple limits searches per IP address and keeps refusing for a long time once the
+                            limit is hit. Requests are sent one at a time, at least this far apart. Raise it if
+                            the log reports rate limiting.
+                        </div>
+                    </div>
 
                     <h2>Cache</h2>
                     <div class="checkboxContainer checkboxContainer-withDescription">
@@ -147,6 +159,69 @@
                 </form>
 
                 <div style="margin-top:2em;">
+                    <h2>Library organization</h2>
+                    <div class="fieldDescription" style="margin-bottom:1em;">
+                        Moves every album that has an Apple Music id into
+                        <code>Artist-[amid-id]/Album-[amid-id]/01 Title.ext</code> under its library folder.
+                        Directories tagged this way are looked up by id on later scans, so the rate-limited
+                        search is never needed again. Jellyfin sees the moved files as new items: play counts
+                        and favourites on them are lost. Preview first; the scheduled task
+                        <em>Organize the library by Apple Music ids</em> only logs while <em>Dry run</em> is on.
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="OrganizeRenameTrackFiles" name="OrganizeRenameTrackFiles" type="checkbox" is="emby-checkbox" />
+                            <span>Rename track files</span>
+                        </label>
+                        <div class="fieldDescription">
+                            Also rename tracks to <code>01 Title.ext</code> (<code>2-01 Title.ext</code> on multi-disc
+                            albums). Directories are always renamed.
+                        </div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="OrganizeDryRun" name="OrganizeDryRun" type="checkbox" is="emby-checkbox" />
+                            <span>Dry run</span>
+                        </label>
+                        <div class="fieldDescription">
+                            The scheduled task only writes the planned moves to the log. Turn off to let it move
+                            files. The buttons below are not affected: Preview never moves, Apply always does.
+                        </div>
+                    </div>
+                    <button is="emby-button" type="button" id="OrganizePreview" class="raised block emby-button">
+                        <span>Preview moves</span>
+                    </button>
+                    <button is="emby-button" type="button" id="OrganizeApply" class="raised block emby-button">
+                        <span>Apply moves now</span>
+                    </button>
+                    <div id="OrganizeResult" style="margin-top:1em; display:none;">
+                        <div id="OrganizeSummary" class="fieldDescription"></div>
+                        <pre id="OrganizeDetails" style="white-space:pre-wrap; font-size:0.85em; max-height:24em; overflow:auto;"></pre>
+                    </div>
+                </div>
+
+                <div style="margin-top:2em;">
+                    <h2>Artist coverage</h2>
+                    <div class="fieldDescription" style="margin-bottom:1em;">
+                        Searches Apple Music for every artist name in the library and reports how many are
+                        identified by the name alone. Each name costs one rate-limited search, so the run is
+                        strictly sequential and can take a while; it stops when Apple starts refusing and picks
+                        up from the cache when started again. The same run is available as the scheduled task
+                        <em>Check artist coverage on Apple Music</em>.
+                    </div>
+                    <button is="emby-button" type="button" id="CoverageRun" class="raised block emby-button">
+                        <span>Start a coverage run</span>
+                    </button>
+                    <button is="emby-button" type="button" id="CoverageShow" class="raised block emby-button">
+                        <span>Show the latest report</span>
+                    </button>
+                    <div id="CoverageResult" style="margin-top:1em; display:none;">
+                        <div id="CoverageSummary" class="fieldDescription"></div>
+                        <pre id="CoverageDetails" style="white-space:pre-wrap; font-size:0.85em; max-height:24em; overflow:auto;"></pre>
+                    </div>
+                </div>
+
+                <div style="margin-top:2em;">
                     <h2>Cache maintenance</h2>
                     <div class="fieldDescription" style="margin-bottom:1em;">
                         Expired entries are ignored on read but are only deleted by the
@@ -178,6 +253,8 @@
                         document.querySelector('#MaxSearchResults').value = config.MaxSearchResults;
                         document.querySelector('#ArtworkSize').value = config.ArtworkSize;
                         document.querySelector('#RequestTimeoutSeconds').value = config.RequestTimeoutSeconds;
+                        document.querySelector('#RequestIntervalMilliseconds').value =
+                            config.RequestIntervalMilliseconds;
                         document.querySelector('#EnableCache').checked = config.EnableCache;
                         document.querySelector('#CacheLifetimeDays').value = config.CacheLifetimeDays;
                         document.querySelector('#CacheNotFoundLifetimeHours').value =
@@ -185,6 +262,8 @@
                         document.querySelector('#MaxCacheMemoryMegabytes').value = config.MaxCacheMemoryMegabytes;
                         document.querySelector('#MaxPersistedEntryKilobytes').value =
                             config.MaxPersistedEntryKilobytes;
+                        document.querySelector('#OrganizeRenameTrackFiles').checked = config.OrganizeRenameTrackFiles;
+                        document.querySelector('#OrganizeDryRun').checked = config.OrganizeDryRun;
                         Dashboard.hideLoadingMsg();
                     });
                 });
@@ -220,6 +299,134 @@
                     });
                 });
 
+            function showOrganizeReport(report) {
+                var lines = [];
+                // Artist by artist: the flat move list runs to thousands of
+                // paths on a real library and cannot be read.
+                (report.Artists || []).forEach(function (artist) {
+                    var name = artist.Artist || '(unresolved)';
+                    lines.push(name + (artist.ArtistId ? '  [amid-' + artist.ArtistId + ']' : '') +
+                        '  —  ' + artist.AlbumCount + ' album(s), ' + artist.MovedAlbums + ' moving, ' +
+                        artist.TrackRenames + ' track rename(s)' +
+                        (artist.SkippedCount ? ', ' + artist.SkippedCount + ' skipped' : ''));
+                    artist.Albums.forEach(function (album) {
+                        if (album.TargetName) {
+                            lines.push('    ' + album.Album + '\n      -> ' + album.TargetName +
+                                (album.TrackRenames ? '  (' + album.TrackRenames + ' track rename(s))' : ''));
+                        } else {
+                            lines.push('    ' + album.Album + '  (stays put)');
+                        }
+                        album.Skipped.forEach(function (reason) { lines.push('    [skip] ' + reason); });
+                    });
+                    lines.push('');
+                });
+                (report.Failed || []).forEach(function (reason) { lines.push('[FAIL] ' + reason); });
+                document.querySelector('#OrganizeSummary').textContent =
+                    (report.DryRun ? 'Preview: ' : 'Applied ' + report.Applied + ' of ') +
+                    report.Moves.length + ' move(s) across ' + report.Albums + ' album(s) by ' +
+                    report.ArtistCount + ' artist(s), ' + report.Skipped.length + ' skipped' +
+                    (report.Failed && report.Failed.length ? ', ' + report.Failed.length + ' failed' : '') + '.';
+                document.querySelector('#OrganizeDetails').textContent =
+                    lines.length ? lines.join('\n') : 'Nothing to do.';
+                document.querySelector('#OrganizeResult').style.display = 'block';
+            }
+
+            function runOrganize(action) {
+                Dashboard.showLoadingMsg();
+                ApiClient.ajax({
+                    type: 'POST',
+                    url: ApiClient.getUrl('AppleMusic/Organize/' + action),
+                    dataType: 'json'
+                }).then(function (report) {
+                    Dashboard.hideLoadingMsg();
+                    showOrganizeReport(report);
+                }, function (response) {
+                    Dashboard.hideLoadingMsg();
+                    Dashboard.alert(response && response.status === 409
+                        ? 'The organizer is already running.'
+                        : 'The organizer failed; see the server log.');
+                });
+            }
+
+            document.querySelector('#OrganizePreview')
+                .addEventListener('click', function () { runOrganize('Plan'); });
+
+            document.querySelector('#OrganizeApply')
+                .addEventListener('click', function () {
+                    Dashboard.confirm(
+                        'Move the files now? Jellyfin will re-scan the library afterwards and treat the moved ' +
+                        'tracks as new items, so play counts and favourites on them are lost.',
+                        'Organize the library',
+                        function (confirmed) {
+                            if (confirmed) {
+                                runOrganize('Apply');
+                            }
+                        });
+                });
+
+            function outcomeIs(entry, name, ordinal) {
+                return entry.Outcome === name || entry.Outcome === ordinal;
+            }
+
+            function showCoverageReport(report) {
+                var lines = [];
+                report.Entries.forEach(function (entry) {
+                    if (outcomeIs(entry, 'Exact', 0)) {
+                        return;
+                    }
+                    var tag = outcomeIs(entry, 'Relaxed', 1) ? '[case] '
+                        : outcomeIs(entry, 'Unmatched', 2) ? '[miss] '
+                        : outcomeIs(entry, 'NotFound', 3) ? '[none] '
+                        : outcomeIs(entry, 'RateLimited', 4) ? '[429]  '
+                        : '[err]  ';
+                    lines.push(tag + entry.Name + (entry.Candidate ? '  ->  ' + entry.Candidate : '') + (entry.Error ? '  (' + entry.Error + ')' : ''));
+                });
+                document.querySelector('#CoverageSummary').textContent =
+                    (report.Completed ? 'Checked ' : 'In progress or stopped early: checked ') +
+                    report.Checked + ' of ' + report.Total + ' artist name(s). ' +
+                    report.Exact + ' exact (' + report.ExactPercent + '%), ' +
+                    report.Relaxed + ' differ only in case or spacing (' + report.RelaxedPercent + '% together), ' +
+                    report.Unmatched + ' unmatched, ' + report.NotFound + ' not found' +
+                    (report.RateLimited ? ', ' + report.RateLimited + ' unanswered' : '') +
+                    (report.Errors ? ', ' + report.Errors + ' failed' : '') +
+                    '. Last updated ' + new Date(report.UpdatedAt).toLocaleString() + '.';
+                document.querySelector('#CoverageDetails').textContent =
+                    lines.length ? lines.join('\n') : 'Every checked name matched exactly.';
+                document.querySelector('#CoverageResult').style.display = 'block';
+            }
+
+            document.querySelector('#CoverageShow')
+                .addEventListener('click', function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.ajax({
+                        type: 'GET',
+                        url: ApiClient.getUrl('AppleMusic/Artists/Coverage'),
+                        dataType: 'json'
+                    }).then(function (report) {
+                        Dashboard.hideLoadingMsg();
+                        showCoverageReport(report);
+                    }, function (response) {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert(response && response.status === 404
+                            ? 'No coverage run has happened yet.'
+                            : 'Could not read the coverage report; see the server log.');
+                    });
+                });
+
+            document.querySelector('#CoverageRun')
+                .addEventListener('click', function () {
+                    ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('AppleMusic/Artists/Coverage/Run')
+                    }).then(function () {
+                        Dashboard.alert('The coverage run has started. Progress shows under Scheduled Tasks; use "Show the latest report" to read the result, also while it is running.');
+                    }, function (response) {
+                        Dashboard.alert(response && response.status === 409
+                            ? 'A coverage run is already in progress.'
+                            : 'Could not start the coverage run; see the server log.');
+                    });
+                });
+
             document.querySelector('#AppleMusicConfigForm')
                 .addEventListener('submit', function (e) {
                     Dashboard.showLoadingMsg();
@@ -232,6 +439,8 @@
                         config.ArtworkSize = parseInt(document.querySelector('#ArtworkSize').value, 10);
                         config.RequestTimeoutSeconds = parseInt(
                             document.querySelector('#RequestTimeoutSeconds').value, 10);
+                        config.RequestIntervalMilliseconds = parseInt(
+                            document.querySelector('#RequestIntervalMilliseconds').value, 10);
                         config.EnableCache = document.querySelector('#EnableCache').checked;
                         config.CacheLifetimeDays = parseInt(
                             document.querySelector('#CacheLifetimeDays').value, 10);
@@ -241,6 +450,8 @@
                             document.querySelector('#MaxCacheMemoryMegabytes').value, 10);
                         config.MaxPersistedEntryKilobytes = parseInt(
                             document.querySelector('#MaxPersistedEntryKilobytes').value, 10);
+                        config.OrganizeRenameTrackFiles = document.querySelector('#OrganizeRenameTrackFiles').checked;
+                        config.OrganizeDryRun = document.querySelector('#OrganizeDryRun').checked;
                         ApiClient.updatePluginConfiguration(AppleMusicConfig.pluginUniqueId, config)
                             .then(function (result) {
                                 Dashboard.processPluginConfigurationUpdateResult(result);
