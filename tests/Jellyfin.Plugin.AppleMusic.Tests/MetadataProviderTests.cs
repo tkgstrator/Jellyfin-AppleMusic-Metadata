@@ -9,6 +9,7 @@ using Jellyfin.Plugin.AppleMusic.Catalog;
 using Jellyfin.Plugin.AppleMusic.Catalog.Models;
 using Jellyfin.Plugin.AppleMusic.ExternalIds;
 using Jellyfin.Plugin.AppleMusic.Providers;
+using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -232,6 +233,95 @@ public class MetadataProviderTests
         Assert.Equal("短い紹介", result.Item.Overview); // falls back to the short note
         Assert.Equal(["J-Pop"], result.Item.Genres);
         Assert.Equal("530814268", result.Item.GetProviderId(ProviderKeys.Artist));
+    }
+
+    [Fact]
+    public async Task ArtistProvider_MapsTheBiographyBirthdayAndOrigin()
+    {
+        var catalog = new FakeCatalog
+        {
+            Artists =
+            [
+                new CatalogItem<ArtistAttributes>("530814268", "jp", new ArtistAttributes
+                {
+                    Name = "米津玄師",
+                    ArtistBio = "徳島県出身。<br>ボカロP ハチ として活動。",
+                    BornOrFormed = "1991年3月10日",
+                    Origin = "徳島県, 日本",
+
+                    // Present but lower priority than the biography.
+                    EditorialNotes = new EditorialNotes { Short = "短い紹介" },
+                })
+            ],
+        };
+        var provider = new ArtistMetadataProvider(catalog, new StubHttpClientFactory(), NullLogger<ArtistMetadataProvider>.Instance);
+
+        var result = await provider.GetMetadata(new ArtistInfo { Name = "米津玄師" }, CancellationToken.None);
+
+        Assert.Equal("徳島県出身。\nボカロP ハチ として活動。", result.Item.Overview);
+        Assert.Equal(new DateTime(1991, 3, 10, 0, 0, 0, DateTimeKind.Utc), result.Item.PremiereDate!.Value.ToUniversalTime());
+        Assert.Equal(1991, result.Item.ProductionYear);
+        Assert.Equal(["徳島県, 日本"], result.Item.ProductionLocations);
+    }
+
+    [Fact]
+    public async Task ArtistProvider_LeavesTheDateAndOriginUnsetWhenAppleHasNone()
+    {
+        var catalog = new FakeCatalog
+        {
+            Artists = [new CatalogItem<ArtistAttributes>("530814268", "jp", new ArtistAttributes { Name = "米津玄師" })],
+        };
+        var provider = new ArtistMetadataProvider(catalog, new StubHttpClientFactory(), NullLogger<ArtistMetadataProvider>.Instance);
+
+        var result = await provider.GetMetadata(new ArtistInfo { Name = "米津玄師" }, CancellationToken.None);
+
+        Assert.True(result.HasMetadata);
+        Assert.Null(result.Item.PremiereDate);
+        Assert.Empty(result.Item.ProductionLocations);
+    }
+
+    [Fact]
+    public async Task AlbumProvider_MapsTheRecordLabelOntoStudios()
+    {
+        var catalog = new FakeCatalog
+        {
+            Albums =
+            [
+                new CatalogItem<AlbumAttributes>("1440791809", "jp", new AlbumAttributes { Name = "YANKEE", RecordLabel = "Universal Music LLC" })
+            ],
+        };
+        var provider = new AlbumMetadataProvider(catalog, new StubHttpClientFactory(), NullLogger<AlbumMetadataProvider>.Instance);
+
+        var result = await provider.GetMetadata(new AlbumInfo { Name = "YANKEE" }, CancellationToken.None);
+
+        Assert.Equal(["Universal Music LLC"], result.Item.Studios);
+    }
+
+    [Fact]
+    public async Task ArtistImageProvider_AsksAppleForTheCropItPrefers()
+    {
+        // Artist portraits are often not square, and Apple says how to crop
+        // them; ignoring that centre-crops the face out of the frame.
+        var catalog = new FakeCatalog
+        {
+            Artists =
+            [
+                new CatalogItem<ArtistAttributes>("530814268", "jp", new ArtistAttributes
+                {
+                    Name = "米津玄師",
+                    Artwork = new Artwork { Url = "https://example.com/{w}x{h}{c}.{f}", DefaultCropCode = "ac" },
+                })
+            ],
+        };
+        var provider = new ArtistImageProvider(catalog, new StubHttpClientFactory(), NullLogger<ArtistImageProvider>.Instance);
+        var artist = new MusicArtist();
+        artist.SetProviderId(ProviderKeys.Artist, "530814268");
+
+        var images = await provider.GetImages(artist, CancellationToken.None);
+
+        var image = Assert.Single(images);
+        Assert.Equal("https://example.com/1400x1400ac.jpg", image.Url);
+        Assert.Empty(catalog.Searches);
     }
 
     private sealed class StubHttpClientFactory : IHttpClientFactory

@@ -100,6 +100,13 @@ PluginServiceRegistrator.cs              カタログ層の DI 登録
 スキャンに任せる（再生回数は消える。利用者と合意済み）。`IScheduledTask.Key` は
 `AppleMusicOrganize`、既定トリガーなし。
 
+**曲名を付けたファイルは曲と一緒に改名する。** Jellyfin は歌詞などのサイドカーを
+ファイル名で対応付けるので、曲だけ改名すると `.lrc` が孤立する（実ライブラリに
+10,397 件）。`{曲のファイル名から拡張子を除いた部分}.` で始まるものをサイドカーと
+みなし、残りの部分は保つ（`01.ja.lrc` → `01 Title.ja.lrc`）。`cover.jpg` は語幹が
+違うのでディレクトリ移動に任せる。`MoveKind.Sidecar` に分けてあるのは、レポートの
+「track rename(s)」が曲数より大きくならないようにするため。
+
 **アーティストカバレッジ計測は検索を 1 名 1 回・直列で送り、429 で打ち切る。**
 `ArtistCoverageProbe` は `SearchArtistsAsync(term, limit, ct)` を使う。この
 オーバーロードだけは `CatalogRateLimitedException` を握りつぶさず伝播する。

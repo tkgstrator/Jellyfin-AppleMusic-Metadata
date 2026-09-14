@@ -1,4 +1,7 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 
 namespace Jellyfin.Plugin.AppleMusic.Organizer;
 
@@ -52,4 +55,39 @@ public class OrganizeReport
     /// Gets how many distinct artists the run touched.
     /// </summary>
     public int ArtistCount => Artists.Count;
+
+    /// <summary>
+    /// Rolls the per-album plans up by artist, for <see cref="Artists"/>.
+    /// </summary>
+    /// <remarks>
+    /// Albums the catalog could not resolve carry no artist, so they land
+    /// under an empty name and are reported at the end rather than dropped.
+    /// </remarks>
+    /// <param name="plans">The per-album plans, in any order.</param>
+    /// <returns>The same work, artist by artist in name order.</returns>
+    public static IReadOnlyList<ArtistOutcome> GroupByArtist(IReadOnlyList<AlbumPlan> plans)
+        => plans
+            .GroupBy(plan => (plan.Artist, plan.ArtistId))
+            .Select(group => new ArtistOutcome
+            {
+                Artist = group.Key.Artist,
+                ArtistId = group.Key.ArtistId,
+                Albums = group
+                    .Select(plan => new AlbumOutcome
+                    {
+                        Album = plan.Album,
+                        AlbumId = plan.AlbumId,
+                        TargetName = plan.TargetAlbumDirectory.Length == 0
+                            ? string.Empty
+                            : Path.GetFileName(Path.TrimEndingDirectorySeparator(plan.TargetAlbumDirectory)),
+                        DirectoryMoves = plan.Moves.Any(move => move.Kind == MoveKind.Directory),
+                        TrackRenames = plan.Moves.Count(move => move.Kind == MoveKind.File),
+                        Skipped = plan.Skipped,
+                    })
+                    .OrderBy(album => album.Album, StringComparer.OrdinalIgnoreCase)
+                    .ToList(),
+            })
+            .OrderBy(artist => artist.Artist.Length == 0)
+            .ThenBy(artist => artist.Artist, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 }
