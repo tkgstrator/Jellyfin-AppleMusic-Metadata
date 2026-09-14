@@ -70,3 +70,7 @@ $RECYCLE.BIN/
 .env.local
 .secrets
 !.secrets.example
+
+# scripts/tag-library.sh output
+tag-library.cache/
+tag-library.plan*

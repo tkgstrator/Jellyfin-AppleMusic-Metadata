@@ -36,4 +36,20 @@ public class OrganizeReport
     /// Gets how many albums carried an Apple Music id and were considered.
     /// </summary>
     public int Albums { get; init; }
+
+    /// <summary>
+    /// Gets the same work grouped by artist, in name order.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Moves"/> is the list the executor walks, in apply order. A
+    /// few thousand paths in one flat list is unreadable, so the same work is
+    /// also reported artist by artist: how many albums each contributes, and
+    /// what each album becomes.
+    /// </remarks>
+    public IReadOnlyList<ArtistOutcome> Artists { get; init; } = [];
+
+    /// <summary>
+    /// Gets how many distinct artists the run touched.
+    /// </summary>
+    public int ArtistCount => Artists.Count;
 }

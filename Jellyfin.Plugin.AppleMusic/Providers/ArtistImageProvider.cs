@@ -83,7 +83,10 @@ public class ArtistImageProvider : IRemoteImageProvider
         if (!string.IsNullOrEmpty(id))
         {
             var found = await _catalog.GetArtistAsync(id, storefront, cancellationToken);
-            var url = ArtworkUrl.Resolve(found?.Attributes.Artwork?.Url, options.ArtworkSize);
+            var url = ArtworkUrl.Resolve(
+                found?.Attributes.Artwork?.Url,
+                options.ArtworkSize,
+                found?.Attributes.Artwork?.DefaultCropCode);
             return url is null ? [] : [ImageInfo(url, options.ArtworkSize)];
         }
 
@@ -91,7 +94,10 @@ public class ArtistImageProvider : IRemoteImageProvider
         var artists = await _catalog.SearchArtistsAsync(artist.Name, cancellationToken);
 
         return artists
-            .Select(candidate => ArtworkUrl.Resolve(candidate.Attributes.Artwork?.Url, options.ArtworkSize))
+            .Select(candidate => ArtworkUrl.Resolve(
+                candidate.Attributes.Artwork?.Url,
+                options.ArtworkSize,
+                candidate.Attributes.Artwork?.DefaultCropCode))
             .Where(url => url is not null)
             .Select(url => ImageInfo(url!, options.ArtworkSize))
             .ToList();
