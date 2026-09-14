@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -124,6 +125,77 @@ public class AppleMusicCatalogTests
     }
 
     [Fact]
+    public async Task GetAlbumAsync_CarriesRelationshipsAndFollowsPagedTracks()
+    {
+        var transport = new FakeTransport(url =>
+        {
+            if (url.Contains("/albums/1/tracks?offset=1", StringComparison.Ordinal))
+            {
+                return new TrackList { Data = [new Resource<SongAttributes> { Id = "t2", Attributes = new SongAttributes { Name = "Two", TrackNumber = 2 } }] };
+            }
+
+            return new ResourceList<AlbumAttributes>
+            {
+                Data =
+                [
+                    new Resource<AlbumAttributes>
+                    {
+                        Id = "1",
+                        Attributes = new AlbumAttributes { Name = "Album" },
+                        Relationships = new Relationships
+                        {
+                            Artists = new ResourceList<ArtistAttributes> { Data = [new Resource<ArtistAttributes> { Id = "ar1" }] },
+                            Tracks = new TrackList
+                            {
+                                Data = [new Resource<SongAttributes> { Id = "t1", Attributes = new SongAttributes { Name = "One", TrackNumber = 1 } }],
+                                Next = "/v1/catalog/jp/albums/1/tracks?offset=1",
+                            },
+                        },
+                    },
+                ],
+            };
+        });
+        var catalog = Build(transport);
+
+        var album = await catalog.GetAlbumAsync("1", "jp", CancellationToken.None);
+
+        Assert.NotNull(album);
+        Assert.Equal(["ar1"], album.ArtistIds);
+        Assert.Equal(["t1", "t2"], album.Tracks.Select(track => track.Id));
+        Assert.All(album.Tracks, track => Assert.Equal("jp", track.Storefront));
+        Assert.Equal(2, transport.Requests.Count);
+        Assert.Contains("l=ja-jp", transport.Requests[1], StringComparison.Ordinal); // the language is kept on the next page
+    }
+
+    [Fact]
+    public async Task GetSongAsync_CarriesTheAlbumAndArtistIds()
+    {
+        var transport = new FakeTransport(_ => new ResourceList<SongAttributes>
+        {
+            Data =
+            [
+                new Resource<SongAttributes>
+                {
+                    Id = "s1",
+                    Attributes = new SongAttributes { Name = "Song" },
+                    Relationships = new Relationships
+                    {
+                        Albums = new ResourceList<AlbumAttributes> { Data = [new Resource<AlbumAttributes> { Id = "al1" }] },
+                        Artists = new ResourceList<ArtistAttributes> { Data = [new Resource<ArtistAttributes> { Id = "ar1" }] },
+                    },
+                },
+            ],
+        });
+
+        var song = await Build(transport).GetSongAsync("s1", "jp", CancellationToken.None);
+
+        Assert.NotNull(song);
+        Assert.Equal(["al1"], song.AlbumIds);
+        Assert.Equal(["ar1"], song.ArtistIds);
+        Assert.Empty(song.Tracks);
+    }
+
+    [Fact]
     public async Task GetSongAsync_WalksStorefrontsWhenNoneIsGiven()
     {
         var transport = new FakeTransport(url => url.Contains("/us/", StringComparison.Ordinal)
@@ -195,6 +267,41 @@ public class AppleMusicCatalogTests
         var catalog = Build(transport);
 
         Assert.Empty(await catalog.SearchSongsAsync("term", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task SearchSongsAsync_ReturnsEmptyWithoutFallingBackWhenRateLimited()
+    {
+        var transport = new FakeTransport(_ => throw new CatalogRateLimitedException());
+        var catalog = Build(transport);
+
+        var songs = await catalog.SearchSongsAsync("IRIS OUT", CancellationToken.None);
+
+        Assert.Empty(songs);
+        Assert.Single(transport.Requests); // us must not be asked with jp unanswered
+    }
+
+    [Fact]
+    public async Task SearchArtistsAsync_WithLimit_UsesTheLimitAndPropagatesRateLimiting()
+    {
+        var transport = new FakeTransport(_ => throw new CatalogRateLimitedException());
+        var catalog = Build(transport);
+
+        await Assert.ThrowsAsync<CatalogRateLimitedException>(() => catalog.SearchArtistsAsync("YOASOBI", 5, CancellationToken.None));
+
+        var request = Assert.Single(transport.Requests);
+        Assert.Contains("types=artists", request, StringComparison.Ordinal);
+        Assert.Contains("limit=5", request, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetSongAsync_ReturnsNullWhenRateLimited()
+    {
+        var transport = new FakeTransport(_ => throw new CatalogRateLimitedException());
+        var catalog = Build(transport);
+
+        Assert.Null(await catalog.GetSongAsync("1837658529", "jp", CancellationToken.None));
+        Assert.Single(transport.Requests);
     }
 
     private static AppleMusicCatalog Build(ICatalogTransport transport, CatalogOptions? options = null)

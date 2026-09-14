@@ -36,6 +36,23 @@ public interface IAppleMusicCatalog
     Task<IReadOnlyList<CatalogItem<ArtistAttributes>>> SearchArtistsAsync(string term, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Searches for artists, asking for at most <paramref name="limit"/> results.
+    /// </summary>
+    /// <remarks>
+    /// Unlike the other searches this one lets <see cref="CatalogRateLimitedException"/>
+    /// through instead of answering "nothing found". Batch tools such as the
+    /// artist coverage probe must tell the two apart: an unanswered lookup is
+    /// not a missing artist, and once the catalog refuses it is better to stop
+    /// than to keep knocking.
+    /// </remarks>
+    /// <param name="term">Search term.</param>
+    /// <param name="limit">Maximum number of results per storefront.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Matching artists; empty when nothing was found.</returns>
+    /// <exception cref="CatalogRateLimitedException">The catalog refused the request.</exception>
+    Task<IReadOnlyList<CatalogItem<ArtistAttributes>>> SearchArtistsAsync(string term, int limit, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Looks a song up by catalog identifier.
     /// </summary>
     /// <param name="id">Apple Music catalog identifier.</param>
