@@ -14,6 +14,13 @@ public enum MoveKind
     /// A single file.
     /// </summary>
     File,
+
+    /// <summary>
+    /// A file that belongs to a track and is renamed with it, such as a
+    /// <c>.lrc</c> lyrics file. Counted separately so a report can say how
+    /// many tracks it renames without the companions inflating the number.
+    /// </summary>
+    Sidecar,
 }
 
 /// <summary>

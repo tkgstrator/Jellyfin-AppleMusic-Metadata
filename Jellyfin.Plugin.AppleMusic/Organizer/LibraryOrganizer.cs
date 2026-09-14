@@ -84,7 +84,7 @@ public sealed class LibraryOrganizer : IDisposable
             var plans = await PlanAsync(progress, cancellationToken);
             var moves = plans.SelectMany(plan => plan.Moves).ToList();
             var skipped = plans.SelectMany(plan => plan.Skipped).ToList();
-            var artists = GroupByArtist(plans);
+            var artists = OrganizeReport.GroupByArtist(plans);
 
             if (dryRun)
             {
@@ -133,37 +133,6 @@ public sealed class LibraryOrganizer : IDisposable
             _running.Release();
         }
     }
-
-    /// <summary>
-    /// Rolls the per-album plans up by artist. Albums the catalog could not
-    /// resolve carry no artist, so they land under an empty name and are
-    /// reported at the end rather than dropped.
-    /// </summary>
-    private static List<ArtistOutcome> GroupByArtist(IReadOnlyList<AlbumPlan> plans)
-        => plans
-            .GroupBy(plan => (plan.Artist, plan.ArtistId))
-            .Select(group => new ArtistOutcome
-            {
-                Artist = group.Key.Artist,
-                ArtistId = group.Key.ArtistId,
-                Albums = group
-                    .Select(plan => new AlbumOutcome
-                    {
-                        Album = plan.Album,
-                        AlbumId = plan.AlbumId,
-                        TargetName = plan.TargetAlbumDirectory.Length == 0
-                            ? string.Empty
-                            : Path.GetFileName(Path.TrimEndingDirectorySeparator(plan.TargetAlbumDirectory)),
-                        DirectoryMoves = plan.Moves.Any(move => move.Kind == MoveKind.Directory),
-                        TrackRenames = plan.Moves.Count(move => move.Kind == MoveKind.File),
-                        Skipped = plan.Skipped,
-                    })
-                    .OrderBy(album => album.Album, StringComparer.OrdinalIgnoreCase)
-                    .ToList(),
-            })
-            .OrderBy(artist => artist.Artist.Length == 0)
-            .ThenBy(artist => artist.Artist, StringComparer.OrdinalIgnoreCase)
-            .ToList();
 
     private void LogByArtist(IReadOnlyList<ArtistOutcome> artists)
     {
@@ -285,7 +254,11 @@ public sealed class LibraryOrganizer : IDisposable
             .Select(track => new TrackSnapshot(track.Path, track.GetProviderId(ProviderKeys.Song), track.ParentIndexNumber, track.IndexNumber, track.Name))
             .ToList();
 
-        return planner.Plan(new AlbumSnapshot(album.Name, album.Path, root, tracks), catalogAlbum, artistName, artistId, options);
+        List<string> sidecars = Directory.Exists(album.Path)
+            ? Directory.EnumerateFiles(album.Path, "*", SearchOption.AllDirectories).Where(path => !IsAudio(path)).ToList()
+            : [];
+
+        return planner.Plan(new AlbumSnapshot(album.Name, album.Path, root, tracks, sidecars), catalogAlbum, artistName, artistId, options);
     }
 
     private int Apply(AlbumPlan plan, List<string> failed)
