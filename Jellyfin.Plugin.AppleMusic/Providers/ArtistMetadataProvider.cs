@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Threading;
@@ -7,6 +8,7 @@ using System.Threading.Tasks;
 using Jellyfin.Plugin.AppleMusic.Catalog;
 using Jellyfin.Plugin.AppleMusic.Catalog.Models;
 using Jellyfin.Plugin.AppleMusic.ExternalIds;
+using Jellyfin.Plugin.AppleMusic.Organizer;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Providers;
@@ -111,6 +113,17 @@ public class ArtistMetadataProvider : IRemoteMetadataProvider<MusicArtist, Artis
             _logger.LogDebug("Looking up artist by id {Id} ({Storefront})", id, storefront);
             var artist = await _catalog.GetArtistAsync(id, storefront, cancellationToken);
             return artist is null ? [] : [artist];
+        }
+
+        var tagged = FolderTag.Parse(Path.GetFileName(info.Path));
+        if (tagged is not null)
+        {
+            _logger.LogDebug("Looking up artist by the id tagged on its directory: {Id}", tagged);
+            var artist = await _catalog.GetArtistAsync(tagged, null, cancellationToken);
+            if (artist is not null)
+            {
+                return [artist];
+            }
         }
 
         _logger.LogDebug("Searching Apple Music artists for {Term}", info.Name);

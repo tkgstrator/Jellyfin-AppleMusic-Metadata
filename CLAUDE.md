@@ -70,10 +70,32 @@ Jellyfin.Plugin.AppleMusic/ExternalIds/  ProviderKeys, 3 つの IExternalId,
                                          IExternalUrlProvider
 Jellyfin.Plugin.AppleMusic/Providers/    Album/Artist/Song のメタデータ、
                                          Album/Artist の画像
-Jellyfin.Plugin.AppleMusic/Tasks/        キャッシュ掃除の週次タスク
-Jellyfin.Plugin.AppleMusic/Api/          設定画面から叩くキャッシュ操作 API
+Jellyfin.Plugin.AppleMusic/Organizer/    [amid-id] タグ、名前の正規化、移動計画（純粋）と
+                                         実行（Jellyfin 依存）
+Jellyfin.Plugin.AppleMusic/Tasks/        キャッシュ掃除の週次タスク、ライブラリ整理タスク
+Jellyfin.Plugin.AppleMusic/Api/          設定画面から叩くキャッシュ操作・整理 API
 PluginServiceRegistrator.cs              カタログ層の DI 登録
 ```
+
+**プロバイダの ID 解決は 3 段階: 保存済み ID → ディレクトリ名の `[amid-id]` → 検索。**
+検索は最後の手段（IP 単位でレート制限される）。曲はアルバムのタグから
+`GetAlbumAsync` → `Tracks` をトラック番号で引くので、アルバムが特定できていれば
+曲の検索は要らない。ID 引きの応答には `relationships` が付き、`CatalogItem` の
+`ArtistIds` / `AlbumIds` / `Tracks` に載る（検索結果には付かない）。
+
+**初回スキャンでは曲プロバイダにタグが渡らない。** Jellyfin は `GetLookupInfo()` を
+作ってから ID3 を読むプリリフレッシュを走らせる（`MetadataService.RefreshMetadata`）。
+つまり初回の `SongInfo` は `Name` = ファイル名、`IndexNumber` = null。だから
+`SongMetadataProvider.MatchTrack` はファイル名の `01` / `2-01` / `01 - Title` から
+番号を読む（`FileNames.ParseTrackFileName`）。整理後のファイル名は必ずこの形なので、
+以後の初回スキャンも検索なしで確定する。
+
+**整理（Organizer）は計画と実行を分ける。** `OrganizePlanner` は Jellyfin にも
+ディスクにも触らない純粋ロジックで、移動先の決定・衝突回避・トラック対応付けの
+規則はすべてここのユニットテストで固定する。`LibraryOrganizer` は Jellyfin から
+スナップショットを集めて計画を適用するだけ。移動後は Jellyfin の DB を書き換えず
+スキャンに任せる（再生回数は消える。利用者と合意済み）。`IScheduledTask.Key` は
+`AppleMusicOrganize`、既定トリガーなし。
 
 **期限切れエントリは自分では消えない。** 読み出し時に無視されるだけなので、
 `CacheMaintenanceTask`（週次）と設定画面のボタンが `PruneAsync` を呼ぶ。

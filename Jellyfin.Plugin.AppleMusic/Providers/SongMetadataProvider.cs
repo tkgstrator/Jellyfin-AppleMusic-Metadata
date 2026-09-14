@@ -8,6 +8,7 @@ using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.AppleMusic.Catalog;
 using Jellyfin.Plugin.AppleMusic.Catalog.Models;
 using Jellyfin.Plugin.AppleMusic.ExternalIds;
+using Jellyfin.Plugin.AppleMusic.Organizer;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
@@ -106,6 +107,14 @@ public class SongMetadataProvider : IRemoteMetadataProvider<Audio, SongInfo>
         item.SetProviderId(ProviderKeys.Song, song.Id);
         item.SetProviderId(ProviderKeys.Storefront, song.Storefront);
 
+        // Known from the song's relationships on an id lookup, or from the
+        // tagged album directory the track was resolved through.
+        var albumId = song.AlbumIds.Count > 0 ? song.AlbumIds[0] : FolderTag.FindInAncestors(info.Path);
+        if (albumId is not null)
+        {
+            item.SetProviderId(ProviderKeys.Album, albumId);
+        }
+
         var result = new MetadataResult<Audio> { Item = item, HasMetadata = true };
 
         if (!string.IsNullOrWhiteSpace(attributes.ComposerName))
@@ -169,8 +178,66 @@ public class SongMetadataProvider : IRemoteMetadataProvider<Audio, SongInfo>
             return song is null ? [] : [song];
         }
 
+        var albumId = FolderTag.FindInAncestors(info.Path);
+        if (albumId is not null)
+        {
+            _logger.LogDebug("Resolving the song through the album tagged on its directory: {Id}", albumId);
+            var album = await _catalog.GetAlbumAsync(albumId, null, cancellationToken);
+            var track = album is null ? null : MatchTrack(album.Tracks, info);
+            if (track is not null)
+            {
+                return [track];
+            }
+        }
+
         var term = BuildSearchTerm(info);
         _logger.LogDebug("Searching Apple Music songs for {Term}", term);
         return await _catalog.SearchSongsAsync(term, cancellationToken);
+    }
+
+    /// <summary>
+    /// Picks the album track a file corresponds to, by disc and track number
+    /// first and by title otherwise.
+    /// </summary>
+    /// <param name="tracks">The album's tracks.</param>
+    /// <param name="info">Lookup info of the file.</param>
+    /// <returns>The matching track, or null.</returns>
+    internal static CatalogItem<SongAttributes>? MatchTrack(IReadOnlyList<CatalogItem<SongAttributes>> tracks, SongInfo info)
+    {
+        // On the first scan the tags have not been probed yet, so fall back to
+        // whatever the file name says.
+        var (fileDisc, fileTrack, fileTitle) = FileNames.ParseTrackFileName(info.Path ?? string.Empty);
+        var trackNumber = info.IndexNumber is > 0 ? info.IndexNumber : fileTrack;
+        var discNumber = info.IndexNumber is > 0 ? info.ParentIndexNumber : fileDisc;
+
+        if (trackNumber is > 0)
+        {
+            var byNumber = tracks
+                .Where(track => track.Attributes.TrackNumber == trackNumber
+                    && (discNumber is null || track.Attributes.DiscNumber is null || track.Attributes.DiscNumber == discNumber))
+                .ToList();
+            if (byNumber.Count == 1)
+            {
+                return byNumber[0];
+            }
+        }
+
+        foreach (var title in new[] { info.Name, fileTitle })
+        {
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                continue;
+            }
+
+            var byName = tracks
+                .Where(track => string.Equals(FileNames.Sanitize(track.Attributes.Name), FileNames.Sanitize(title), StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (byName.Count == 1)
+            {
+                return byName[0];
+            }
+        }
+
+        return null;
     }
 }

@@ -139,6 +139,27 @@ public class ThrottledCatalogTransportTests
         Assert.False(transport.IsCoolingDown);
     }
 
+    [Fact]
+    public async Task GetAsync_DoesNotLetASearchCooldownBlockIdLookups()
+    {
+        var inner = new ScriptedTransport(rateLimitedCalls: int.MaxValue, refuseOnly: "/search?");
+        using var transport = Build(inner, new ThrottleOptions
+        {
+            MinInterval = TimeSpan.Zero,
+            InitialCooldown = TimeSpan.FromSeconds(10),
+            MaxCooldown = TimeSpan.FromSeconds(10),
+            MaxAttempts = 1,
+        });
+
+        await Assert.ThrowsAsync<CatalogRateLimitedException>(
+            () => transport.GetAsync("/v1/catalog/jp/search?term=x", TestContext.Current.CancellationToken));
+
+        var started = DateTimeOffset.UtcNow;
+        Assert.Equal("ok", await transport.GetAsync("/v1/catalog/jp/albums/1", TestContext.Current.CancellationToken));
+        Assert.True(DateTimeOffset.UtcNow - started < TimeSpan.FromSeconds(2));
+        Assert.True(transport.IsCoolingDown); // the search side is still paused
+    }
+
     private static ThrottledCatalogTransport Build(ICatalogTransport inner, ThrottleOptions options)
         => new(inner, () => options, NullLogger<ThrottledCatalogTransport>.Instance);
 
@@ -149,10 +170,13 @@ public class ThrottledCatalogTransportTests
         private int _rateLimitedCalls;
         private int _inFlight;
 
-        public ScriptedTransport(TimeSpan delay = default, int rateLimitedCalls = 0)
+        private readonly string? _refuseOnly;
+
+        public ScriptedTransport(TimeSpan delay = default, int rateLimitedCalls = 0, string? refuseOnly = null)
         {
             _delay = delay;
             _rateLimitedCalls = rateLimitedCalls;
+            _refuseOnly = refuseOnly;
         }
 
         public int Calls => Starts.Count;
@@ -171,7 +195,7 @@ public class ThrottledCatalogTransportTests
                 Starts.Add(DateTimeOffset.UtcNow);
                 _inFlight++;
                 MaxConcurrency = Math.Max(MaxConcurrency, _inFlight);
-                refuse = _rateLimitedCalls > 0;
+                refuse = _rateLimitedCalls > 0 && (_refuseOnly is null || relativeUrl.Contains(_refuseOnly, StringComparison.Ordinal));
                 if (refuse)
                 {
                     _rateLimitedCalls--;

@@ -19,9 +19,13 @@ namespace Jellyfin.Plugin.AppleMusic.Catalog.Throttling;
 /// </para>
 /// <para>
 /// One request at a time, at least <see cref="ThrottleOptions.MinInterval"/>
-/// apart. A 429 pauses everything for a cooldown that doubles on each
-/// consecutive refusal; the refused lookup is retried after the pause, up to
-/// <see cref="ThrottleOptions.MaxAttempts"/> times. Once the cooldown has hit
+/// apart. A 429 pauses requests of the same kind — search, or id lookup —
+/// for a cooldown that doubles on each consecutive refusal; the refused
+/// request is retried after the pause, up to
+/// <see cref="ThrottleOptions.MaxAttempts"/> times. The two kinds are paused
+/// separately because Apple has been observed refusing searches for hours
+/// while still answering id lookups, and a tagged library needs only the
+/// latter. Once the cooldown has hit
 /// its ceiling the catalog is clearly refusing for a while, so lookups that
 /// arrive during the pause fail immediately instead of queueing for minutes —
 /// the scan then finishes without those items and a later refresh fills them
@@ -37,9 +41,10 @@ public sealed class ThrottledCatalogTransport : ICatalogTransport, IDisposable
     private readonly ILogger<ThrottledCatalogTransport> _logger;
     private readonly TimeProvider _time;
 
-    // Both guarded by _gate.
-    private DateTimeOffset _nextAllowed = DateTimeOffset.MinValue;
-    private TimeSpan _cooldown = TimeSpan.Zero;
+    // All guarded by _gate.
+    private readonly Pause _searchPause = new();
+    private readonly Pause _lookupPause = new();
+    private DateTimeOffset _nextSlot = DateTimeOffset.MinValue;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ThrottledCatalogTransport"/> class.
@@ -67,7 +72,7 @@ public sealed class ThrottledCatalogTransport : ICatalogTransport, IDisposable
     /// Gets a value indicating whether the transport is currently pausing
     /// because the catalog refused a request.
     /// </summary>
-    public bool IsCoolingDown => _cooldown > TimeSpan.Zero && _time.GetUtcNow() < _nextAllowed;
+    public bool IsCoolingDown => IsPaused(_searchPause) || IsPaused(_lookupPause);
 
     /// <inheritdoc />
     public void Dispose()
@@ -77,42 +82,46 @@ public sealed class ThrottledCatalogTransport : ICatalogTransport, IDisposable
     public async Task<string?> GetAsync(string relativeUrl, CancellationToken cancellationToken)
     {
         var options = _options();
+        var kind = IsSearch(relativeUrl) ? "search" : "lookup";
+        var pause = IsSearch(relativeUrl) ? _searchPause : _lookupPause;
 
         for (var attempt = 1; ; attempt++)
         {
             await _gate.WaitAsync(cancellationToken);
             try
             {
-                await WaitForSlotAsync(options, relativeUrl, cancellationToken);
+                await WaitForSlotAsync(options, pause, relativeUrl, cancellationToken);
 
                 try
                 {
                     var body = await _inner.GetAsync(relativeUrl, cancellationToken);
-                    _cooldown = TimeSpan.Zero;
-                    _nextAllowed = _time.GetUtcNow() + options.MinInterval;
+                    pause.Cooldown = TimeSpan.Zero;
+                    _nextSlot = _time.GetUtcNow() + options.MinInterval;
                     return body;
                 }
                 catch (CatalogRateLimitedException)
                 {
-                    _cooldown = _cooldown == TimeSpan.Zero
+                    pause.Cooldown = pause.Cooldown == TimeSpan.Zero
                         ? options.InitialCooldown
-                        : Min(_cooldown + _cooldown, options.MaxCooldown);
-                    _nextAllowed = _time.GetUtcNow() + _cooldown;
+                        : Min(pause.Cooldown + pause.Cooldown, options.MaxCooldown);
+                    pause.Until = _time.GetUtcNow() + pause.Cooldown;
 
                     if (attempt >= options.MaxAttempts)
                     {
                         _logger.LogWarning(
-                            "Apple Music kept refusing {Url} after {Attempts} attempts; giving up on this lookup and pausing for {Cooldown}",
+                            "Apple Music kept refusing {Url} after {Attempts} attempts; giving up on it and pausing {Kind} requests for {Cooldown}",
                             relativeUrl,
                             attempt,
-                            _cooldown);
+                            kind,
+                            pause.Cooldown);
                         throw;
                     }
 
                     _logger.LogWarning(
-                        "Apple Music rate limited {Url}; pausing all requests for {Cooldown} before attempt {Next}",
+                        "Apple Music rate limited {Url}; pausing {Kind} requests for {Cooldown} before attempt {Next}",
                         relativeUrl,
-                        _cooldown,
+                        kind,
+                        pause.Cooldown,
                         attempt + 1);
                 }
             }
@@ -123,27 +132,43 @@ public sealed class ThrottledCatalogTransport : ICatalogTransport, IDisposable
         }
     }
 
+    private static bool IsSearch(string relativeUrl)
+        => relativeUrl.Contains("/search?", StringComparison.Ordinal);
+
     private static TimeSpan Min(TimeSpan left, TimeSpan right)
         => left < right ? left : right;
 
-    // Called while holding _gate, so everybody else queues behind the wait.
-    private async Task WaitForSlotAsync(ThrottleOptions options, string relativeUrl, CancellationToken cancellationToken)
-    {
-        var wait = _nextAllowed - _time.GetUtcNow();
-        if (wait <= TimeSpan.Zero)
-        {
-            return;
-        }
+    private bool IsPaused(Pause pause)
+        => pause.Cooldown > TimeSpan.Zero && _time.GetUtcNow() < pause.Until;
 
-        if (_cooldown >= options.MaxCooldown)
+    // Called while holding _gate, so everybody else queues behind the wait.
+    private async Task WaitForSlotAsync(ThrottleOptions options, Pause pause, string relativeUrl, CancellationToken cancellationToken)
+    {
+        var now = _time.GetUtcNow();
+        var pauseWait = pause.Until - now;
+        if (pauseWait > TimeSpan.Zero && pause.Cooldown >= options.MaxCooldown)
         {
-            // The catalog has been refusing us for a while. Do not make the
-            // scan queue up for minutes per item; fail fast until the pause
-            // has elapsed and one request can probe again.
-            _logger.LogDebug("Skipping {Url}: Apple Music is still refusing requests for another {Wait}", relativeUrl, wait);
+            // The catalog has been refusing this kind of request for a while.
+            // Do not make the scan queue up for minutes per item; fail fast
+            // until the pause has elapsed and one request can probe again.
+            _logger.LogDebug("Skipping {Url}: Apple Music is still refusing such requests for another {Wait}", relativeUrl, pauseWait);
             throw new CatalogRateLimitedException();
         }
 
-        await Task.Delay(wait, _time, cancellationToken);
+        var wait = Max(_nextSlot - now, pauseWait);
+        if (wait > TimeSpan.Zero)
+        {
+            await Task.Delay(wait, _time, cancellationToken);
+        }
+    }
+
+    private static TimeSpan Max(TimeSpan left, TimeSpan right)
+        => left > right ? left : right;
+
+    private sealed class Pause
+    {
+        public TimeSpan Cooldown { get; set; }
+
+        public DateTimeOffset Until { get; set; } = DateTimeOffset.MinValue;
     }
 }

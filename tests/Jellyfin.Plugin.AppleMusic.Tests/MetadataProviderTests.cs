@@ -50,6 +50,95 @@ public class MetadataProviderTests
     }
 
     [Fact]
+    public async Task AlbumProvider_UsesTheDirectoryTagInsteadOfSearching()
+    {
+        var catalog = new FakeCatalog
+        {
+            Albums = [new CatalogItem<AlbumAttributes>("1440791809", "jp", new AlbumAttributes { Name = "YANKEE" })],
+        };
+        var provider = new AlbumMetadataProvider(catalog, new StubHttpClientFactory(), NullLogger<AlbumMetadataProvider>.Instance);
+
+        var result = await provider.GetMetadata(
+            new AlbumInfo { Name = "Yankee", Path = "/music/米津玄師-[amid-1]/YANKEE-[amid-1440791809]" },
+            CancellationToken.None);
+
+        Assert.True(result.HasMetadata);
+        Assert.Equal("1440791809", result.Item.GetProviderId(ProviderKeys.Album));
+        Assert.Empty(catalog.Searches);
+        Assert.Equal([("1440791809", (string?)null)], catalog.AlbumLookups);
+    }
+
+    [Fact]
+    public async Task SongProvider_ResolvesThroughTheTaggedAlbumInsteadOfSearching()
+    {
+        var catalog = new FakeCatalog
+        {
+            Albums =
+            [
+                new CatalogItem<AlbumAttributes>("1440791809", "jp", new AlbumAttributes { Name = "YANKEE" })
+                {
+                    Tracks =
+                    [
+                        new CatalogItem<SongAttributes>("t1", "jp", new SongAttributes { Name = "MAD HEAD LOVE", DiscNumber = 1, TrackNumber = 1 }),
+                        new CatalogItem<SongAttributes>("t2", "jp", new SongAttributes { Name = "ポッピンアパシー", DiscNumber = 1, TrackNumber = 2 }),
+                    ],
+                },
+            ],
+        };
+        var provider = new SongMetadataProvider(catalog, new StubHttpClientFactory(), NullLogger<SongMetadataProvider>.Instance);
+
+        var result = await provider.GetMetadata(
+            new SongInfo { Name = "whatever the tag says", IndexNumber = 2, Path = "/music/A-[amid-9]/YANKEE-[amid-1440791809]/02.flac" },
+            CancellationToken.None);
+
+        Assert.True(result.HasMetadata);
+        Assert.Equal("ポッピンアパシー", result.Item.Name);
+        Assert.Equal("t2", result.Item.GetProviderId(ProviderKeys.Song));
+        Assert.Equal("1440791809", result.Item.GetProviderId(ProviderKeys.Album));
+        Assert.Empty(catalog.Searches);
+    }
+
+    [Fact]
+    public async Task SongProvider_FallsBackToSearchWhenTheTaggedAlbumHasNoSuchTrack()
+    {
+        var catalog = new FakeCatalog
+        {
+            Albums = [new CatalogItem<AlbumAttributes>("1440791809", "jp", new AlbumAttributes { Name = "YANKEE" })],
+            Songs = [new CatalogItem<SongAttributes>("s1", "jp", new SongAttributes { Name = "Bonus" })],
+        };
+        var provider = new SongMetadataProvider(catalog, new StubHttpClientFactory(), NullLogger<SongMetadataProvider>.Instance);
+
+        var result = await provider.GetMetadata(
+            new SongInfo { Name = "Bonus", IndexNumber = 7, Path = "/music/A-[amid-9]/YANKEE-[amid-1440791809]/07.flac" },
+            CancellationToken.None);
+
+        Assert.True(result.HasMetadata);
+        Assert.Equal("s1", result.Item.GetProviderId(ProviderKeys.Song));
+        Assert.Single(catalog.Searches);
+    }
+
+    [Fact]
+    public void MatchTrack_PrefersNumbersAndFallsBackToTheTitle()
+    {
+        IReadOnlyList<CatalogItem<SongAttributes>> tracks =
+        [
+            new("t1", "jp", new SongAttributes { Name = "One", DiscNumber = 1, TrackNumber = 1 }),
+            new("t2", "jp", new SongAttributes { Name = "Two", DiscNumber = 2, TrackNumber = 1 }),
+            new("t3", "jp", new SongAttributes { Name = "Three", DiscNumber = 2, TrackNumber = 2 }),
+        ];
+
+        Assert.Equal("t2", SongMetadataProvider.MatchTrack(tracks, new SongInfo { IndexNumber = 1, ParentIndexNumber = 2 })?.Id);
+        Assert.Equal("t3", SongMetadataProvider.MatchTrack(tracks, new SongInfo { Name = "02", Path = "/x/CD2/02.flac" })?.Id); // unprobed: number off the file name
+        Assert.Equal("t2", SongMetadataProvider.MatchTrack(tracks, new SongInfo { Name = "2-01", Path = "/x/2-01.flac" })?.Id);
+        Assert.Equal("t1", SongMetadataProvider.MatchTrack(tracks, new SongInfo { Name = "1-01 One", Path = "/x/1-01 One.flac" })?.Id);
+        Assert.Equal("t3", SongMetadataProvider.MatchTrack(tracks, new SongInfo { Name = "Three (remaster)", Path = "/x/99 - Three.flac" })?.Id); // title off the file name
+        Assert.Equal("t3", SongMetadataProvider.MatchTrack(tracks, new SongInfo { IndexNumber = 2 })?.Id);
+        Assert.Equal("t1", SongMetadataProvider.MatchTrack(tracks, new SongInfo { IndexNumber = 1, Name = "one" })?.Id); // ambiguous number, title decides
+        Assert.Null(SongMetadataProvider.MatchTrack(tracks, new SongInfo { IndexNumber = 1 }));
+        Assert.Null(SongMetadataProvider.MatchTrack(tracks, new SongInfo { Name = "Four" }));
+    }
+
+    [Fact]
     public async Task AlbumProvider_ReportsNoMetadataWhenNothingMatches()
     {
         var provider = new AlbumMetadataProvider(new FakeCatalog(), new StubHttpClientFactory(), NullLogger<AlbumMetadataProvider>.Instance);
