@@ -108,8 +108,8 @@ public class SongMetadataProvider : IRemoteMetadataProvider<Audio, SongInfo>
         item.SetProviderId(ProviderKeys.Storefront, song.Storefront);
 
         // Known from the song's relationships on an id lookup, or from the
-        // tagged album directory the track was resolved through.
-        var albumId = song.AlbumIds.Count > 0 ? song.AlbumIds[0] : FolderTag.FindInAncestors(info.Path);
+        // album the track was resolved through.
+        var albumId = song.AlbumIds.Count > 0 ? song.AlbumIds[0] : FindAlbum(info.Path).Id;
         if (albumId is not null)
         {
             item.SetProviderId(ProviderKeys.Album, albumId);
@@ -178,11 +178,11 @@ public class SongMetadataProvider : IRemoteMetadataProvider<Audio, SongInfo>
             return song is null ? [] : [song];
         }
 
-        var albumId = FolderTag.FindInAncestors(info.Path);
+        var (albumId, albumStorefront) = FindAlbum(info.Path);
         if (albumId is not null)
         {
-            _logger.LogDebug("Resolving the song through the album tagged on its directory: {Id}", albumId);
-            var album = await _catalog.GetAlbumAsync(albumId, null, cancellationToken);
+            _logger.LogDebug("Resolving the song through the album {Id} found beside it ({Storefront})", albumId, albumStorefront);
+            var album = await _catalog.GetAlbumAsync(albumId, albumStorefront, cancellationToken);
             var track = album is null ? null : MatchTrack(album.Tracks, info);
             if (track is not null)
             {
@@ -193,6 +193,18 @@ public class SongMetadataProvider : IRemoteMetadataProvider<Audio, SongInfo>
         var term = BuildSearchTerm(info);
         _logger.LogDebug("Searching Apple Music songs for {Term}", term);
         return await _catalog.SearchSongsAsync(term, cancellationToken);
+    }
+
+    /// <summary>
+    /// Finds the album a track belongs to without searching: the id tagged on
+    /// a directory first, then the one Jellyfin keeps in <c>album.nfo</c>.
+    /// </summary>
+    /// <param name="path">Path of the track file.</param>
+    /// <returns>The album id and storefront, both null when neither is there.</returns>
+    internal static (string? Id, string? Storefront) FindAlbum(string? path)
+    {
+        var tagged = FolderTag.FindInAncestors(path);
+        return tagged is not null ? (tagged, null) : NfoIds.FindAlbumInAncestors(path);
     }
 
     /// <summary>
