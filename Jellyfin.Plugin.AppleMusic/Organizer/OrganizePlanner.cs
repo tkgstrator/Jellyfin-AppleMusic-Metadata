@@ -205,6 +205,60 @@ public class OrganizePlanner
             }
 
             moves.Add(new PlannedMove(MoveKind.File, from, to));
+            PlanSidecars(album, track.Path, to, currentDir, targetAlbumDir, claimed, moves, skipped);
+        }
+    }
+
+    /// <summary>
+    /// Renames whatever is named after the track along with it, keeping
+    /// everything the track's own name does not account for: <c>01 Title.lrc</c>
+    /// and <c>01 Title.ja.lrc</c> both follow <c>01 Title.flac</c>, while
+    /// <c>cover.jpg</c> is named after the album and stays put.
+    /// </summary>
+    private void PlanSidecars(
+        AlbumSnapshot album,
+        string trackPath,
+        string trackTarget,
+        string currentDir,
+        string targetAlbumDir,
+        HashSet<string> claimed,
+        List<PlannedMove> moves,
+        List<string> skipped)
+    {
+        var trackDirectory = Path.GetDirectoryName(trackPath) ?? string.Empty;
+        var prefix = Path.GetFileNameWithoutExtension(trackPath) + ".";
+        var targetStem = Path.GetFileNameWithoutExtension(trackTarget);
+
+        foreach (var sidecar in album.Sidecars)
+        {
+            var name = Path.GetFileName(sidecar);
+            if (!PathEquals(Path.GetDirectoryName(sidecar) ?? string.Empty, trackDirectory)
+                || !name.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var from = Path.Combine(targetAlbumDir, Path.GetRelativePath(currentDir, sidecar));
+            var to = Path.Combine(targetAlbumDir, targetStem + name[(prefix.Length - 1)..]);
+            if (PathEquals(from, to))
+            {
+                claimed.Add(to);
+                continue;
+            }
+
+            if (!claimed.Add(to))
+            {
+                skipped.Add($"{album.Name}: two files would both become {Path.GetFileName(to)}");
+                continue;
+            }
+
+            if (PathEquals(currentDir, targetAlbumDir) && _exists(to))
+            {
+                skipped.Add($"{album.Name}: {to} already exists");
+                continue;
+            }
+
+            moves.Add(new PlannedMove(MoveKind.Sidecar, from, to));
         }
     }
 

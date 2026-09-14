@@ -128,6 +128,105 @@ public class OrganizePlannerTests
     }
 
     [Fact]
+    public void Plan_RenamesLyricsWithTheTrackTheyBelongTo()
+    {
+        var album = WithSidecars(
+            Album("Yankee", P("Kenshi Yonezu", "Yankee"), Track("01.flac", id: "t1", disc: 1, track: 1)),
+            "01.lrc",
+            "cover.jpg");
+        var catalog = CatalogAlbum("al1", "YANKEE", ("t1", 1, 1, "MAD HEAD LOVE"));
+
+        var plan = new OrganizePlanner(_ => false).Plan(album, catalog, "米津玄師", "ar1", new OrganizeOptions());
+
+        var target = P("米津玄師-[amid-ar1]", "YANKEE-[amid-al1]");
+        Assert.Contains(
+            new PlannedMove(MoveKind.Sidecar, Path.Combine(target, "01.lrc"), Path.Combine(target, "01 MAD HEAD LOVE.lrc")),
+            plan.Moves);
+
+        // cover.jpg is named after the album, so the directory move carries it.
+        Assert.DoesNotContain(plan.Moves, move => move.From.EndsWith("cover.jpg", StringComparison.Ordinal));
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void Plan_KeepsWhateverFollowsTheTrackNameOnASidecar()
+    {
+        var album = WithSidecars(
+            Album("Yankee", P("Kenshi Yonezu", "Yankee"), Track("01.flac", id: "t1", disc: 1, track: 1)),
+            "01.ja.lrc");
+        var catalog = CatalogAlbum("al1", "YANKEE", ("t1", 1, 1, "MAD HEAD LOVE"));
+
+        var plan = new OrganizePlanner(_ => false).Plan(album, catalog, "米津玄師", "ar1", new OrganizeOptions());
+
+        var target = P("米津玄師-[amid-ar1]", "YANKEE-[amid-al1]");
+        Assert.Contains(
+            new PlannedMove(MoveKind.Sidecar, Path.Combine(target, "01.ja.lrc"), Path.Combine(target, "01 MAD HEAD LOVE.ja.lrc")),
+            plan.Moves);
+    }
+
+    [Fact]
+    public void Plan_FlattensASidecarOutOfItsDiscFolderWithTheTrack()
+    {
+        var dir = P("Artist", "Album");
+        var album = WithSidecars(
+            Album("Album", dir, Track(Path.Combine("CD1", "01.flac"), id: "t1", disc: 1, track: 1), Track(Path.Combine("CD2", "01.flac"), id: "t2", disc: 2, track: 1)),
+            Path.Combine("CD1", "01.lrc"));
+        var catalog = CatalogAlbum("al1", "Album", ("t1", 1, 1, "One"), ("t2", 2, 1, "Two"));
+
+        var plan = new OrganizePlanner(_ => false).Plan(album, catalog, "Artist", "ar1", new OrganizeOptions());
+
+        var target = P("Artist-[amid-ar1]", "Album-[amid-al1]");
+        Assert.Contains(
+            new PlannedMove(MoveKind.Sidecar, Path.Combine(target, "CD1", "01.lrc"), Path.Combine(target, "1-01 One.lrc")),
+            plan.Moves);
+    }
+
+    [Fact]
+    public void Plan_LeavesASidecarAloneWhenItsTrackIsAlreadyNamedRight()
+    {
+        var dir = P("米津玄師-[amid-ar1]", "YANKEE-[amid-al1]");
+        var album = WithSidecars(
+            Album("YANKEE", dir, Track("01 MAD HEAD LOVE.flac", id: "t1", disc: 1, track: 1)),
+            "01 MAD HEAD LOVE.lrc");
+        var catalog = CatalogAlbum("al1", "YANKEE", ("t1", 1, 1, "MAD HEAD LOVE"));
+
+        var plan = new OrganizePlanner(_ => true).Plan(album, catalog, "米津玄師", "ar1", new OrganizeOptions());
+
+        Assert.Empty(plan.Moves);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void Plan_DoesNotTouchSidecarsWhenTrackRenamingIsOff()
+    {
+        var album = WithSidecars(
+            Album("Yankee", P("Kenshi Yonezu", "Yankee"), Track("01.flac", id: "t1", disc: 1, track: 1)),
+            "01.lrc");
+        var catalog = CatalogAlbum("al1", "YANKEE", ("t1", 1, 1, "MAD HEAD LOVE"));
+
+        var plan = new OrganizePlanner(_ => false).Plan(album, catalog, "米津玄師", "ar1", new OrganizeOptions { RenameTrackFiles = false });
+
+        var move = Assert.Single(plan.Moves);
+        Assert.Equal(MoveKind.Directory, move.Kind);
+    }
+
+    [Fact]
+    public void Plan_RefusesToOverwriteAnExistingSidecarWhenTheAlbumStaysPut()
+    {
+        var dir = P("Artist-[amid-ar1]", "Album-[amid-al1]");
+        var album = WithSidecars(Album("Album", dir, Track("a.flac", id: "t1", disc: 1, track: 1)), "a.lrc");
+        var catalog = CatalogAlbum("al1", "Album", ("t1", 1, 1, "One"));
+        var occupied = Path.Combine(dir, "01 One.lrc");
+
+        var plan = new OrganizePlanner(path => path == occupied || path == dir).Plan(album, catalog, "Artist", "ar1", new OrganizeOptions());
+
+        // The track itself still moves; only its companion is in the way.
+        Assert.Single(plan.Moves, move => move.Kind == MoveKind.File);
+        Assert.DoesNotContain(plan.Moves, move => move.Kind == MoveKind.Sidecar);
+        Assert.Single(plan.Skipped, reason => reason.Contains("already exists", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Plan_RefusesToLetTwoTracksCollide()
     {
         var album = Album("Album", P("Artist", "Album"), Track("a.flac", id: "t1", disc: 1, track: 1), Track("b.flac", id: "t1", disc: 1, track: 1));
@@ -157,7 +256,7 @@ public class OrganizePlannerTests
     public void Plan_SkipsAlbumsOutsideTheLibraryFolder()
     {
         var elsewhere = Path.Combine(Path.GetTempPath(), "other", "Album");
-        var album = new AlbumSnapshot("Album", elsewhere, Root, [Track(Path.Combine(elsewhere, "a.flac"), id: "t1", disc: 1, track: 1)]);
+        var album = new AlbumSnapshot("Album", elsewhere, Root, [Track(Path.Combine(elsewhere, "a.flac"), id: "t1", disc: 1, track: 1)], []);
         var catalog = CatalogAlbum("al1", "Album", ("t1", 1, 1, "One"));
 
         var plan = new OrganizePlanner(_ => false).Plan(album, catalog, "Artist", "ar1", new OrganizeOptions());
@@ -169,7 +268,7 @@ public class OrganizePlannerTests
     [Fact]
     public void Plan_SkipsAlbumsWhoseTracksLiveElsewhere()
     {
-        var album = new AlbumSnapshot("Album", P("Artist", "Album"), Root, [Track(P("Artist", "Other", "a.flac"), id: "t1", disc: 1, track: 1)]);
+        var album = new AlbumSnapshot("Album", P("Artist", "Album"), Root, [Track(P("Artist", "Other", "a.flac"), id: "t1", disc: 1, track: 1)], []);
         var catalog = CatalogAlbum("al1", "Album", ("t1", 1, 1, "One"));
 
         var plan = new OrganizePlanner(_ => false).Plan(album, catalog, "Artist", "ar1", new OrganizeOptions());
@@ -205,7 +304,10 @@ public class OrganizePlannerTests
         => Path.Combine([Root, .. parts]);
 
     private static AlbumSnapshot Album(string name, string path, params TrackSnapshot[] tracks)
-        => new(name, path, Root, tracks.Select(track => track with { Path = Path.Combine(path, track.Path) }).ToList());
+        => new(name, path, Root, tracks.Select(track => track with { Path = Path.Combine(path, track.Path) }).ToList(), []);
+
+    private static AlbumSnapshot WithSidecars(AlbumSnapshot album, params string[] names)
+        => album with { Sidecars = names.Select(name => Path.Combine(album.Path, name)).ToList() };
 
     private static TrackSnapshot Track(string path, string? id, int? disc, int? track)
         => new(path, id, disc, track, Path.GetFileNameWithoutExtension(path));
