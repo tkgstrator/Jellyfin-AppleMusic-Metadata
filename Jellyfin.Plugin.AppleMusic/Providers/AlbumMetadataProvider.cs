@@ -185,6 +185,17 @@ public class AlbumMetadataProvider : IRemoteMetadataProvider<MusicAlbum, AlbumIn
             }
         }
 
+        var (embedded, embeddedStorefront) = EmbeddedIds.FindAlbumInDirectory(info.Path);
+        if (embedded is not null)
+        {
+            _logger.LogDebug("Looking up album by the id embedded in its tracks: {Id} ({Storefront})", embedded, embeddedStorefront);
+            var album = await _catalog.GetAlbumAsync(embedded, embeddedStorefront, cancellationToken);
+            if (album is not null)
+            {
+                return [album];
+            }
+        }
+
         var term = BuildSearchTerm(info);
         _logger.LogDebug("Searching Apple Music albums for {Term}", term);
         return await _catalog.SearchAlbumsAsync(term, cancellationToken);
