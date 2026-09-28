@@ -80,10 +80,15 @@ Jellyfin.Plugin.AppleMusic/Api/          設定画面から叩くキャッシュ
 PluginServiceRegistrator.cs              カタログ層の DI 登録
 ```
 
-**プロバイダの ID 解決は 3 段階: 保存済み ID → ディレクトリ名の `[amid-id]` → 検索。**
+**プロバイダの ID 解決: 保存済み ID → ディレクトリ名の `[amid-id]` → `album.nfo`
+（曲のみ。アルバムは Jellyfin 自身が nfo を保存済み ID として読む）→ ファイルに
+埋め込まれた iTunes Store のタグ（`plID` / `cnID` / `sfID`、`EmbeddedIds`）→ 検索。**
 検索は最後の手段（IP 単位でレート制限される）。曲はアルバムのタグから
-`GetAlbumAsync` → `Tracks` をトラック番号で引くので、アルバムが特定できていれば
-曲の検索は要らない。ID 引きの応答には `relationships` が付き、`CatalogItem` の
+`GetAlbumAsync` → `Tracks` を引き、埋め込み `cnID` の完全一致 → トラック番号の順で
+確定するので、アルバムが特定できていれば曲の検索は要らない。埋め込み `cnID` を
+`GetSongAsync` で直接引くのはアルバムで確定できなかったときだけ（1 曲 1 リクエスト
+になるため）。`[amid-]` と nfo は手で直せるので埋め込みタグより優先する。
+ID 引きの応答には `relationships` が付き、`CatalogItem` の
 `ArtistIds` / `AlbumIds` / `Tracks` に載る（検索結果には付かない）。
 
 **初回スキャンでは曲プロバイダにタグが渡らない。** Jellyfin は `GetLookupInfo()` を

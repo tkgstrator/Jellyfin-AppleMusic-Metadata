@@ -178,15 +178,27 @@ public class SongMetadataProvider : IRemoteMetadataProvider<Audio, SongInfo>
             return song is null ? [] : [song];
         }
 
-        var (albumId, albumStorefront) = FindAlbum(info.Path);
+        var embedded = EmbeddedIds.Read(info.Path);
+        var (albumId, albumStorefront) = FindAlbum(info.Path, (embedded.Album, embedded.Storefront));
         if (albumId is not null)
         {
             _logger.LogDebug("Resolving the song through the album {Id} found beside it ({Storefront})", albumId, albumStorefront);
             var album = await _catalog.GetAlbumAsync(albumId, albumStorefront, cancellationToken);
-            var track = album is null ? null : MatchTrack(album.Tracks, info);
+            var track = album is null ? null : MatchEmbedded(album.Tracks, embedded.Song) ?? MatchTrack(album.Tracks, info);
             if (track is not null)
             {
                 return [track];
+            }
+        }
+
+        // One request per track, so only once the album could not place it.
+        if (embedded.Song is not null)
+        {
+            _logger.LogDebug("Looking up song by the id embedded in the file: {Id} ({Storefront})", embedded.Song, embedded.Storefront);
+            var song = await _catalog.GetSongAsync(embedded.Song, embedded.Storefront, cancellationToken);
+            if (song is not null)
+            {
+                return [song];
             }
         }
 
@@ -197,15 +209,52 @@ public class SongMetadataProvider : IRemoteMetadataProvider<Audio, SongInfo>
 
     /// <summary>
     /// Finds the album a track belongs to without searching: the id tagged on
-    /// a directory first, then the one Jellyfin keeps in <c>album.nfo</c>.
+    /// a directory first, then the one Jellyfin keeps in <c>album.nfo</c>,
+    /// then the one embedded in the file.
     /// </summary>
     /// <param name="path">Path of the track file.</param>
-    /// <returns>The album id and storefront, both null when neither is there.</returns>
+    /// <returns>The album id and storefront, both null when none is there.</returns>
     internal static (string? Id, string? Storefront) FindAlbum(string? path)
     {
-        var tagged = FolderTag.FindInAncestors(path);
-        return tagged is not null ? (tagged, null) : NfoIds.FindAlbumInAncestors(path);
+        var found = FindAlbum(path, (null, null));
+        if (found.Id is not null)
+        {
+            return found;
+        }
+
+        var embedded = EmbeddedIds.Read(path);
+        return (embedded.Album, embedded.Storefront);
     }
+
+    /// <summary>
+    /// Finds the album a track belongs to, given the ids already read out of
+    /// the file.
+    /// </summary>
+    /// <param name="path">Path of the track file.</param>
+    /// <param name="embedded">The album id and storefront embedded in the file.</param>
+    /// <returns>The album id and storefront, both null when none is there.</returns>
+    internal static (string? Id, string? Storefront) FindAlbum(string? path, (string? Id, string? Storefront) embedded)
+    {
+        // The directory tag and the nfo can be corrected by hand, so they win
+        // over what the store wrote into the file.
+        var tagged = FolderTag.FindInAncestors(path);
+        if (tagged is not null)
+        {
+            return (tagged, null);
+        }
+
+        var nfo = NfoIds.FindAlbumInAncestors(path);
+        return nfo.Id is not null ? nfo : embedded;
+    }
+
+    /// <summary>
+    /// Picks the album track whose id is the one embedded in the file.
+    /// </summary>
+    /// <param name="tracks">The album's tracks.</param>
+    /// <param name="id">The song id embedded in the file.</param>
+    /// <returns>The matching track, or null.</returns>
+    internal static CatalogItem<SongAttributes>? MatchEmbedded(IReadOnlyList<CatalogItem<SongAttributes>> tracks, string? id)
+        => id is null ? null : tracks.FirstOrDefault(track => string.Equals(track.Id, id, StringComparison.Ordinal));
 
     /// <summary>
     /// Picks the album track a file corresponds to, by disc and track number
