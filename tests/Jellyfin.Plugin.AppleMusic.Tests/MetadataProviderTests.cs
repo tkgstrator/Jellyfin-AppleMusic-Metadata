@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Threading;
@@ -17,8 +18,19 @@ using Xunit;
 
 namespace Jellyfin.Plugin.AppleMusic.Tests;
 
-public class MetadataProviderTests
+public sealed class MetadataProviderTests : IDisposable
 {
+    private readonly string _root =
+        Path.Combine(Path.GetTempPath(), "apple-music-tests", Guid.NewGuid().ToString("N"));
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_root))
+        {
+            Directory.Delete(_root, true);
+        }
+    }
+
     [Fact]
     public async Task AlbumProvider_MapsEveryFieldOntoTheJellyfinItem()
     {
@@ -116,6 +128,123 @@ public class MetadataProviderTests
         Assert.True(result.HasMetadata);
         Assert.Equal("s1", result.Item.GetProviderId(ProviderKeys.Song));
         Assert.Single(catalog.Searches);
+    }
+
+    [Fact]
+    public async Task SongProvider_ResolvesThroughTheIdsEmbeddedInTheFile()
+    {
+        var catalog = new FakeCatalog
+        {
+            Albums =
+            [
+                new CatalogItem<AlbumAttributes>("1679278166", "jp", new AlbumAttributes { Name = "アイドル - Single" })
+                {
+                    Tracks =
+                    [
+                        new CatalogItem<SongAttributes>("1679278167", "jp", new SongAttributes { Name = "アイドル", DiscNumber = 1, TrackNumber = 1 }),
+                        new CatalogItem<SongAttributes>("1679278168", "jp", new SongAttributes { Name = "Idol", DiscNumber = 1, TrackNumber = 2 }),
+                    ],
+                },
+            ],
+        };
+        var path = WriteTrack(Path.Combine("YOASOBI", "Idol - Single", "01 Idol.m4a"), Mp4Fixture.M4a(1679278167, 1679278166, Mp4Fixture.Japan));
+        var provider = new SongMetadataProvider(catalog, new StubHttpClientFactory(), NullLogger<SongMetadataProvider>.Instance);
+
+        // The tag says "Idol" and the file has no track number probed yet;
+        // the embedded song id still picks track 1, not the title match.
+        var result = await provider.GetMetadata(new SongInfo { Name = "Idol", Path = path }, CancellationToken.None);
+
+        Assert.True(result.HasMetadata);
+        Assert.Equal("1679278167", result.Item.GetProviderId(ProviderKeys.Song));
+        Assert.Equal("1679278166", result.Item.GetProviderId(ProviderKeys.Album));
+        Assert.Equal([("1679278166", "jp")], catalog.AlbumLookups);
+        Assert.Empty(catalog.SongLookups);
+        Assert.Empty(catalog.Searches);
+    }
+
+    [Fact]
+    public async Task SongProvider_LooksUpTheEmbeddedSongWhenThereIsNoAlbumToGoThrough()
+    {
+        var catalog = new FakeCatalog
+        {
+            Songs = [new CatalogItem<SongAttributes>("1679278167", "jp", new SongAttributes { Name = "アイドル" })],
+        };
+        var path = WriteTrack("01 Idol.m4a", Mp4Fixture.M4a(1679278167, storefront: Mp4Fixture.Japan));
+        var provider = new SongMetadataProvider(catalog, new StubHttpClientFactory(), NullLogger<SongMetadataProvider>.Instance);
+
+        var result = await provider.GetMetadata(new SongInfo { Name = "Idol", Path = path }, CancellationToken.None);
+
+        Assert.True(result.HasMetadata);
+        Assert.Equal("1679278167", result.Item.GetProviderId(ProviderKeys.Song));
+        Assert.Equal([("1679278167", "jp")], catalog.SongLookups);
+        Assert.Empty(catalog.AlbumLookups);
+        Assert.Empty(catalog.Searches);
+    }
+
+    [Fact]
+    public async Task SongProvider_PrefersTheDirectoryTagOverTheEmbeddedAlbum()
+    {
+        var catalog = new FakeCatalog
+        {
+            Albums =
+            [
+                new CatalogItem<AlbumAttributes>("1440791809", "jp", new AlbumAttributes { Name = "YANKEE" })
+                {
+                    Tracks = [new CatalogItem<SongAttributes>("t1", "jp", new SongAttributes { Name = "MAD HEAD LOVE", DiscNumber = 1, TrackNumber = 1 })],
+                },
+            ],
+        };
+        var path = WriteTrack(Path.Combine("YANKEE-[amid-1440791809]", "01.m4a"), Mp4Fixture.M4a(album: 1679278166, storefront: Mp4Fixture.Japan));
+        var provider = new SongMetadataProvider(catalog, new StubHttpClientFactory(), NullLogger<SongMetadataProvider>.Instance);
+
+        var result = await provider.GetMetadata(new SongInfo { Name = "MAD HEAD LOVE", IndexNumber = 1, Path = path }, CancellationToken.None);
+
+        Assert.Equal("t1", result.Item.GetProviderId(ProviderKeys.Song));
+        Assert.Equal([("1440791809", (string?)null)], catalog.AlbumLookups);
+    }
+
+    [Fact]
+    public async Task AlbumProvider_UsesTheIdEmbeddedInItsTracksInsteadOfSearching()
+    {
+        var catalog = new FakeCatalog
+        {
+            Albums = [new CatalogItem<AlbumAttributes>("1679278166", "jp", new AlbumAttributes { Name = "アイドル - Single" })],
+        };
+        WriteTrack(Path.Combine("Idol - Single", "01 Idol.m4a"), Mp4Fixture.M4a(1679278167, 1679278166, Mp4Fixture.Japan));
+        var provider = new AlbumMetadataProvider(catalog, new StubHttpClientFactory(), NullLogger<AlbumMetadataProvider>.Instance);
+
+        var result = await provider.GetMetadata(
+            new AlbumInfo { Name = "Idol - Single", Path = Path.Combine(_root, "Idol - Single") },
+            CancellationToken.None);
+
+        Assert.True(result.HasMetadata);
+        Assert.Equal("1679278166", result.Item.GetProviderId(ProviderKeys.Album));
+        Assert.Equal([("1679278166", "jp")], catalog.AlbumLookups);
+        Assert.Empty(catalog.Searches);
+    }
+
+    [Fact]
+    public async Task AlbumImageProvider_UsesTheIdEmbeddedInItsTracksInsteadOfSearching()
+    {
+        var catalog = new FakeCatalog
+        {
+            Albums =
+            [
+                new CatalogItem<AlbumAttributes>("1679278166", "jp", new AlbumAttributes
+                {
+                    Name = "アイドル - Single",
+                    Artwork = new Artwork { Url = "https://example.com/{w}x{h}bb.{f}" },
+                }),
+            ],
+        };
+        WriteTrack(Path.Combine("Idol - Single", "01 Idol.m4a"), Mp4Fixture.M4a(1679278167, 1679278166, Mp4Fixture.Japan));
+        var provider = new AlbumImageProvider(catalog, new StubHttpClientFactory(), NullLogger<AlbumImageProvider>.Instance);
+
+        var images = await provider.GetImages(new MusicAlbum { Path = Path.Combine(_root, "Idol - Single") }, CancellationToken.None);
+
+        Assert.Single(images);
+        Assert.Equal([("1679278166", "jp")], catalog.AlbumLookups);
+        Assert.Empty(catalog.Searches);
     }
 
     [Fact]
@@ -324,6 +453,14 @@ public class MetadataProviderTests
         Assert.Empty(catalog.Searches);
     }
 
+    private string WriteTrack(string name, byte[] bytes)
+    {
+        var path = Path.Combine(_root, name);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, bytes);
+        return path;
+    }
+
     private sealed class StubHttpClientFactory : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => new();
@@ -340,6 +477,8 @@ public class MetadataProviderTests
         public List<string> Searches { get; } = [];
 
         public List<(string Id, string? Storefront)> AlbumLookups { get; } = [];
+
+        public List<(string Id, string? Storefront)> SongLookups { get; } = [];
 
         public Task<IReadOnlyList<CatalogItem<SongAttributes>>> SearchSongsAsync(string term, CancellationToken cancellationToken)
         {
@@ -363,7 +502,10 @@ public class MetadataProviderTests
             => SearchArtistsAsync(term, cancellationToken);
 
         public Task<CatalogItem<SongAttributes>?> GetSongAsync(string id, string? storefront, CancellationToken cancellationToken)
-            => Task.FromResult(Songs.FirstOrDefault(s => s.Id == id));
+        {
+            SongLookups.Add((id, storefront));
+            return Task.FromResult(Songs.FirstOrDefault(s => s.Id == id));
+        }
 
         public Task<CatalogItem<AlbumAttributes>?> GetAlbumAsync(string id, string? storefront, CancellationToken cancellationToken)
         {

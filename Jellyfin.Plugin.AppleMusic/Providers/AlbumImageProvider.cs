@@ -66,14 +66,19 @@ public class AlbumImageProvider : IRemoteImageProvider
 
         var options = Plugin.Instance?.Configuration.ToCatalogOptions() ?? new CatalogOptions();
 
-        // The stored id first, then the id tagged on the directory; either way
-        // no search is needed.
+        // The stored id first, then the id tagged on the directory, then the
+        // one embedded in the tracks; any of them saves a search.
         var id = album.GetProviderId(ProviderKeys.Album);
         var storefront = album.GetProviderId(ProviderKeys.Storefront);
         if (string.IsNullOrEmpty(id))
         {
             id = FolderTag.Parse(Path.GetFileName(album.Path));
             storefront = null;
+        }
+
+        if (string.IsNullOrEmpty(id))
+        {
+            (id, storefront) = EmbeddedIds.FindAlbumInDirectory(album.Path);
         }
 
         if (!string.IsNullOrEmpty(id))
