@@ -74,3 +74,6 @@ $RECYCLE.BIN/
 # scripts/tag-library.sh output
 tag-library.cache/
 tag-library.plan*
+
+# Local Codex configuration, credentials, and session state.
+/.codex/
