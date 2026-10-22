@@ -63,13 +63,19 @@ public class ThrottledCatalogTransportTests
     public async Task GetAsync_GivesUpAfterTheConfiguredAttempts()
     {
         var inner = new ScriptedTransport(rateLimitedCalls: int.MaxValue);
-        using var transport = Build(inner, new ThrottleOptions
-        {
-            MinInterval = TimeSpan.Zero,
-            InitialCooldown = TimeSpan.FromMilliseconds(10),
-            MaxCooldown = TimeSpan.FromSeconds(10),
-            MaxAttempts = 3,
-        });
+
+        // The last pause is only 40ms; on a stopped clock it cannot run out
+        // before the assert, however slow the runner is.
+        using var transport = Build(
+            inner,
+            new ThrottleOptions
+            {
+                MinInterval = TimeSpan.Zero,
+                InitialCooldown = TimeSpan.FromMilliseconds(10),
+                MaxCooldown = TimeSpan.FromSeconds(10),
+                MaxAttempts = 3,
+            },
+            new StoppedClock());
 
         await Assert.ThrowsAsync<CatalogRateLimitedException>(
             () => transport.GetAsync("/v1/a", TestContext.Current.CancellationToken));
@@ -160,8 +166,17 @@ public class ThrottledCatalogTransportTests
         Assert.True(transport.IsCoolingDown); // the search side is still paused
     }
 
-    private static ThrottledCatalogTransport Build(ICatalogTransport inner, ThrottleOptions options)
-        => new(inner, () => options, NullLogger<ThrottledCatalogTransport>.Instance);
+    private static ThrottledCatalogTransport Build(ICatalogTransport inner, ThrottleOptions options, TimeProvider? time = null)
+        => new(inner, () => options, NullLogger<ThrottledCatalogTransport>.Instance, time);
+
+    // Reads a fixed time but still waits on real timers, so pauses are
+    // honoured without ever expiring.
+    private sealed class StoppedClock : TimeProvider
+    {
+        private readonly DateTimeOffset _now = DateTimeOffset.UtcNow;
+
+        public override DateTimeOffset GetUtcNow() => _now;
+    }
 
     private sealed class ScriptedTransport : ICatalogTransport
     {

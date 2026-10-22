@@ -26,7 +26,7 @@ permissions:
 jobs:
   commitlint:
     name: Commit Lint
-    if: ${{ inputs.lint-commits != false }}
+    if: ${{ toJSON(inputs.lint-commits) != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
